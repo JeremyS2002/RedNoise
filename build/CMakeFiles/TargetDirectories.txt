@@ -1,0 +1,3 @@
+/home/jeremy/Documents/uni/graphics/RedNoise/build/CMakeFiles/RedNoise.dir
+/home/jeremy/Documents/uni/graphics/RedNoise/build/CMakeFiles/edit_cache.dir
+/home/jeremy/Documents/uni/graphics/RedNoise/build/CMakeFiles/rebuild_cache.dir

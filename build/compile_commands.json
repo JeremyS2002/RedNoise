@@ -1,0 +1,52 @@
+[
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/CanvasPoint.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/CanvasPoint.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/CanvasPoint.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/CanvasTriangle.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/CanvasTriangle.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/CanvasTriangle.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/Colour.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/Colour.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/Colour.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/DrawingWindow.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/DrawingWindow.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/DrawingWindow.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/ModelTriangle.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/ModelTriangle.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/ModelTriangle.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/RayTriangleIntersection.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/RayTriangleIntersection.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/RayTriangleIntersection.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/TextureMap.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/TextureMap.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/TextureMap.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/TexturePoint.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/TexturePoint.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/TexturePoint.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/libs/sdw/Utils.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/Utils.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw/Utils.cpp"
+},
+{
+  "directory": "/home/jeremy/Documents/uni/graphics/RedNoise/build",
+  "command": "/usr/bin/clang++  -I/usr/include/SDL2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/glm-0.9.7.2 -I/home/jeremy/Documents/uni/graphics/RedNoise/libs/sdw -g -Wall -Wextra -Wcast-align -Wfatal-errors -Werror=return-type -Wno-unused-parameter -Wno-unused-variable -Wno-ignored-attributes -O2 -fno-omit-frame-pointer -g -o CMakeFiles/RedNoise.dir/src/RedNoise.cpp.o -c /home/jeremy/Documents/uni/graphics/RedNoise/src/RedNoise.cpp",
+  "file": "/home/jeremy/Documents/uni/graphics/RedNoise/src/RedNoise.cpp"
+}
+]
