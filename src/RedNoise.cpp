@@ -13,9 +13,10 @@
 #include <iterator>
 #include <algorithm>
 #include <thread>
+#include <random>
 
-#define WIDTH 800
-#define HEIGHT 800
+#define WIDTH 640
+#define HEIGHT 480
 
 #define PI 3.14159265
 
@@ -55,7 +56,8 @@ struct DeviceCoord {
 
 struct WorldCoord {
 	glm::vec3 pos;
-	glm::vec3 uv;
+	glm::vec3 normal;
+	glm::vec2 uv;
 };
 
 class Framebuffer {
@@ -74,96 +76,150 @@ class Framebuffer {
 
 class Camera {
 	public:
-		// glm::mat4 view;
-		// glm::mat4 projection;
-		// glm::vec3 position;
-		// float fovy;
-		// float aspect;
-		// float znear;
-		// float zfar;
+		Camera(float theta) {
+			this->pos = float(5.0) * glm::vec3(cos(-theta + (PI/2)), 0.0, sin(-theta + (PI/2)));
+			this->f = 2.0;
+			this->pitch = 0.0;
+			this->yaw = theta;
+			this->lastPos = this->pos;
+			this->lastPitch = this->pitch;
+			this->lastYaw = this->yaw;
+		}
+
+		glm::vec3 getPos() {
+			return this->pos;
+		}
+
+		float getPitch() {
+			return this->pitch;
+		}
+
+		float getYaw() {
+			return this->yaw;
+		}
+
+		glm::vec3 getLastPos() {
+			return this->lastPos;
+		}
+
+		float getLastPitch() {
+			return this->lastPitch;
+		}
+
+		float getLastYaw() {
+			return this->lastYaw;
+		}
+
+		void setPos(glm::vec3 newPos) {
+			this->lastPos = this->pos;
+			this->pos = newPos;
+		}
+
+		void setPitch(float newPitch) {
+			this->lastPitch = this->pitch;
+			this->pitch = newPitch;
+		}
+
+		void setYaw(float newYaw) {
+			this->lastYaw = this->yaw;
+			this->yaw = newYaw;
+		}
+
+		void addPos(glm::vec3 deltaPos) {
+			this->lastPos = this->pos;
+			this->pos += deltaPos;
+		}
+
+		void addPitch(float deltaPitch) {
+			this->lastPitch = this->pitch;
+			this->pitch += deltaPitch;
+		}
+
+		void addYaw(float deltaYaw) {
+			this->lastYaw = this->yaw;
+			this->yaw += deltaYaw;
+		}
+
+		float getF() {
+			return this->f;
+		}
+	private:
 		float f;
+		
 		glm::vec3 pos;
 		float pitch;
 		float yaw;
 
-	Camera(float theta) {
-		this->pos = float(5.0) * glm::vec3(cos(-theta + (PI/2)), 0.0, sin(-theta + (PI/2)));
-		this->f = 2.0;
-		this->pitch = 0.0;
-		this->yaw = theta;//PI / 2;
-	}
-
-	// Camera(glm::vec3 pos, glm::vec3 forward, float fovy, float aspect, float znear, float zfar) : position(pos), fovy(fovy), aspect(aspect), znear(znear), zfar(zfar) {
-	// 	this->view = glm::lookAt(pos, pos + forward, glm::vec3(0.0, 1.0, 0.0));
-	// 	this->projection = glm::perspectiveLH(fovy, aspect, znear, zfar);
-
-	// 	// float sin_fov = sin(0.5 * fovy);
-	// 	// float cos_fov = cos(0.5 * fovy);
-	// 	// float h = cos_fov / sin_fov;
-	// 	// float w = h / aspect;
-	// 	// float r = zfar / (zfar - znear);
-		
-	// 	// glm::mat4 p = glm::mat4(
-	// 	// 	glm::vec4(w, 0.0, 0.0, 0.0),
-	// 	// 	glm::vec4(0.0, h, 0.0, 0.0),
-	// 	// 	glm::vec4(0.0, 0.0, r, 1.0),
-	// 	// 	glm::vec4(0.0, 0.0, -r * znear, 0.0)
-	// 	// );
-
-	// 	// this->projection = p;
-	// }
+		glm::vec3 lastPos;
+		float lastPitch;
+		float lastYaw;
 };
 
 struct Material {
 	/// @brief base color of the material rgba
 	glm::vec4 color;
+	/// @brief how much specular components of lighting contribute to the render
+	float roughness;
 	/// @brief name of the material (to look up faces in draw)
 	std::string name;
 };
 
 struct FaceIndices {
-	/// @brief vertex 0 index
-	uint32_t v0;
-	/// @brief vertex 1 index
-	uint32_t v1;
-	/// @brief vertex 2 index
-	uint32_t v2;
+	/// @brief vertex 0 position index
+	uint32_t p0;
+	/// @brief vertex 1 position index
+	uint32_t p1;
+	/// @brief vertex 2 position index
+	uint32_t p2;
+
+	bool hasNormals;
+	uint32_t n0;
+	uint32_t n1;
+	uint32_t n2;
+
+	bool hasUvs;
+	uint32_t uv0;
+	uint32_t uv1;
+	uint32_t uv2;
+
+	int mtl;
 };
 
 struct Face {
+	bool hasNormals;
+	bool hasUvs;
 	WorldCoord a;
 	WorldCoord b;
 	WorldCoord c;
-	Material mtl;
+	int mtl;
 };
 
 class Mesh {
 	public:
-		// /// @brief all the materials in the obj file
-		// std::vector<Material> materials;
-		// /// @brief all the posiitons int the obj file
-		// std::vector<WorldCoord> positions;
-		// /// @brief all the faces in the obj file (each face is 3 indices into the array of )
-		// std::vector<Face> faces;
-		// /// @brief map from material name to list of faces to be drawn with that material
-		// std::unordered_map<std::string, std::vector<uint32_t>> draw;
-		// /// @brief model matrix to scale this model
-		// glm::mat4 model;
 		std::vector<Face> faces;
+		std::vector<Material> materials;
 
 	Mesh(std::string path, glm::mat4 model) {
 		std::string buf;
 		std::ifstream F(path);
 
+		std::string mtllib;
 		// read mtl file name
-		getline(F, buf);	
+		while(getline(F, buf)) {
+			auto s = split(buf, ' ');
+			if (s[0] == "mtllib") {
+				mtllib = s[1];
+				break;
+			}
+		}
 
-		std::ifstream MF(split(buf, ' ')[1]);
+		std::ifstream MF(mtllib);
 
 		std::vector<Material> materials_buf;
 		Material m;
+		m.roughness = 1.0;
 		bool first_loop = true;
-
+		
 		while (getline(MF, buf)) {
 			if (buf.size() == 0) {
 				continue;
@@ -194,14 +250,18 @@ class Mesh {
 
 		MF.close();
 
-		std::vector<WorldCoord> positions_buf;
+		this->materials = materials_buf;
+
+		std::vector<glm::vec3> positions_buf;
+		std::vector<glm::vec3> normals_buf;	
+		std::vector<glm::vec2> uvs_buf;
 		std::vector<FaceIndices> faces_buf;
 		std::string current_mtl;
 		bool mtl_set = false;
-		std::unordered_map<std::string, std::vector<uint32_t>> draw_buf;
+		std::unordered_map<std::string, int> material_name_map;
 
-		for (auto m = materials_buf.begin(); m != materials_buf.end(); m++) {
-			draw_buf[m->name] = std::vector<uint32_t>();
+		for (int i = 0; i < materials.size(); i++) {
+			material_name_map[materials[i].name] = i;
 		}
 
 		while (getline(F, buf)) {
@@ -212,25 +272,67 @@ class Mesh {
 
 			std::vector<std::string> vals = split(buf, ' ');
 
-			if (buf[0] == 'v') {
+			if (vals[0] == "v") {
 				float x = std::stof(vals[1]);
 				float y = std::stof(vals[2]);
 				float z = std::stof(vals[3]);
 				glm::vec3 pos = glm::vec3(x, y, z);	
-				WorldCoord w;
-				w.pos = pos;
-				positions_buf.push_back(w);
-			} else if (buf[0] == 'f') {
-				// obj index from 1, c++ from 0
-				uint32_t i0 = std::stoi(vals[1].substr(0, vals[1].size() - 1)) - 1;
-				uint32_t i1 = std::stoi(vals[2].substr(0, vals[2].size() - 1)) - 1;
-				uint32_t i2 = std::stoi(vals[3].substr(0, vals[3].size() - 1)) - 1;
-				FaceIndices f = FaceIndices { i0, i1, i2 };
-				faces_buf.push_back(f);
-				if (mtl_set) {
-					// if material set then append this face to the draw buffer's current materials faces
-					draw_buf.at(current_mtl).push_back(faces_buf.size() - 1);
+				positions_buf.push_back(pos);
+			} else if (vals[0] == "vn") {
+				float x = std::stof(vals[1]);
+				float y = std::stof(vals[2]);
+				float z = std::stof(vals[3]);
+				glm::vec3 normal = glm::vec3(x, y, z);
+				normals_buf.push_back(normal);
+			} else if (vals[0] == "vt") {
+				float x = std::stof(vals[1]);
+				float y = std::stof(vals[2]);
+				glm::vec2 uv = glm::vec2(x, y);
+				uvs_buf.push_back(uv);
+			} else if (vals[0] == "f") {
+				auto vals1split = split(vals[1], '/');
+				auto vals2split = split(vals[2], '/');
+				auto vals3split = split(vals[3], '/');
+
+				FaceIndices f;
+
+				f.p0 = std::stoi(vals1split[0]) - 1;
+				f.p1 = std::stoi(vals2split[0]) - 1;
+				f.p2 = std::stoi(vals3split[0]) - 1;
+
+				if (vals1split.size() > 1 && vals2split.size() > 1 && vals3split.size() > 1) {
+					if (!vals1split[1].empty() && !vals1split[1].empty() && !vals1split[1].empty()) {
+						f.hasUvs = true;
+						f.uv0 = std::stoi(vals1split[1]) - 1;
+						f.uv1 = std::stoi(vals2split[1]) - 1;
+						f.uv2 = std::stoi(vals3split[1]) - 1;
+					} else {
+						f.hasUvs = false;
+					}
+				} else {
+					f.hasUvs = false;
 				}
+
+				if (vals1split.size() > 2 && vals2split.size() > 2 && vals3split.size() > 2) {
+					if (!vals1split[2].empty() && !vals1split[2].empty() && !vals1split[2].empty()) {
+						f.hasNormals = true;
+						f.n0 = std::stoi(vals1split[2]) - 1;
+						f.n1 = std::stoi(vals2split[2]) - 1;
+						f.n2 = std::stoi(vals3split[2]) - 1;
+					} else {
+						f.hasNormals = false;
+					}
+				} else {
+					f.hasNormals = false;
+				}
+
+				if (mtl_set) {
+					f.mtl = material_name_map[current_mtl];
+				} else {
+					f.mtl = -1;
+				}
+
+				faces_buf.push_back(f);
 			} else if (vals[0] == "usemtl") {
 				// change the current material being used
 				mtl_set = true;
@@ -241,27 +343,38 @@ class Mesh {
 		F.close();
 
 		this->faces = std::vector<Face>(faces.size());
-		for (auto mtl = materials_buf.begin(); mtl != materials_buf.end(); mtl++) {
-			if (draw_buf.find(mtl->name) != draw_buf.end()) {
-				auto faces = draw_buf.at(mtl->name);
-				for (auto face_iter = faces.begin(); face_iter != faces.end(); face_iter++) {
-					FaceIndices face = faces_buf[*face_iter];
+		for (auto face = faces_buf.begin(); face != faces_buf.end(); face++) {
+			WorldCoord a;
+			a.pos = positions_buf[face->p0];
+			a.pos = glm::vec3(model * glm::vec4(a.pos.x, a.pos.y, a.pos.z, 1.0));
+			WorldCoord b;
+			b.pos = positions_buf[face->p1];
+			b.pos = glm::vec3(model * glm::vec4(b.pos.x, b.pos.y, b.pos.z, 1.0));
+			WorldCoord c;
+			c.pos = positions_buf[face->p2];
+			c.pos = glm::vec3(model * glm::vec4(c.pos.x, c.pos.y, c.pos.z, 1.0));
 
-					WorldCoord a = positions_buf[face.v0];
-					a.pos = glm::vec3(model * glm::vec4(a.pos.x, a.pos.y, a.pos.z, 1.0));
-					WorldCoord b = positions_buf[face.v1];
-					b.pos = glm::vec3(model * glm::vec4(b.pos.x, b.pos.y, b.pos.z, 1.0));
-					WorldCoord c = positions_buf[face.v2];
-					c.pos = glm::vec3(model * glm::vec4(c.pos.x, c.pos.y, c.pos.z, 1.0));
-
-					Face f;
-					f.a = a;
-					f.b = b;
-					f.c = c;
-					f.mtl = *mtl;
-					this->faces.push_back(f);
-				}
+			if (face->hasUvs) {
+				a.uv = uvs_buf[face->uv0];
+				b.uv = uvs_buf[face->uv1];
+				c.uv = uvs_buf[face->uv2];
 			}
+
+			if (face->hasNormals) {
+				glm::mat3 normalModel = glm::transpose(glm::inverse(glm::mat3(model)));
+				a.normal = normalModel * normals_buf[face->n0];
+				b.normal = normalModel * normals_buf[face->n1];
+				c.normal = normalModel * normals_buf[face->n2];						
+			}
+
+			Face f;
+			f.hasNormals = face->hasNormals;
+			f.hasUvs = face->hasUvs;
+			f.a = a;
+			f.b = b;
+			f.c = c;
+			f.mtl = face->mtl;
+			this->faces.push_back(f);
 		}
 	}
 };
@@ -282,22 +395,22 @@ inline PixCoord device2pix(DeviceCoord ndc, uint width, uint height) {
 }
 
 inline DeviceCoord world2device(WorldCoord world, Camera *cam) {
-	glm::vec3 t = world.pos - cam->pos;
+	glm::vec3 t = world.pos - cam->getPos();
 	glm::mat3 pitch_mat = glm::mat3(
 		glm::vec3(1.0, 0.0, 0.0),
-		glm::vec3(0.0, cos(cam->pitch), -sin(cam->pitch)),
-		glm::vec3(0.0, sin(cam->pitch), cos(cam->pitch))
+		glm::vec3(0.0, cos(cam->getPitch()), -sin(cam->getPitch())),
+		glm::vec3(0.0, sin(cam->getPitch()), cos(cam->getPitch()))
 	);
 	glm::mat3 yaw_mat = glm::mat3(
-		glm::vec3(cos(cam->yaw), 0.0, sin(cam->yaw)),
+		glm::vec3(cos(cam->getYaw()), 0.0, sin(cam->getYaw())),
 		glm::vec3(0.0, 1.0, 0.0),
-		glm::vec3(-sin(cam->yaw), 0.0, cos(cam->yaw))
+		glm::vec3(-sin(cam->getYaw()), 0.0, cos(cam->getYaw()))
 	);
 	DeviceCoord device;
 	t = yaw_mat * t;
 	t = pitch_mat * t;
-	device.pos.x = -cam->f * (t.x / t.z);
-	device.pos.y = cam->f * (t.y / t.z);
+	device.pos.x = -cam->getF() * (t.x / t.z);
+	device.pos.y = cam->getF() * (t.y / t.z);
 	device.pos.z = -t.z;
 	return device;
 }
@@ -651,7 +764,7 @@ void drawMesh(Mesh *m, Camera *cam, Framebuffer *f) {
 	// 	}
 	// }
 	for (auto face = m->faces.begin(); face != m->faces.end(); face++) {
-		drawWorldTriangle(face->a, face->b, face->c, face->mtl, f, cam);
+		drawWorldTriangle(face->a, face->b, face->c, m->materials[face->mtl], f, cam);
 	}
 }
 
@@ -714,6 +827,11 @@ class MyWindow : public Framebuffer {
 		this->shouldClose = false;
 		this->depth = std::vector<float>(width * height, -10000.0);
 		// this->texture = TextureMap("texture.ppm");
+	}
+
+	inline void clear() {
+		this->window.clearPixels();
+		this->depth = std::vector<float>(this->width() * this->height(), -1000.0);
 	}
 };
 
@@ -783,7 +901,6 @@ struct IntersectionInfo {
 struct RayResult {
 	bool valid;
 	IntersectionInfo intersection;
-	glm::vec4 color;
 };
 
 inline RayResult traceRay(Ray ray, Mesh *m) {
@@ -815,7 +932,6 @@ inline RayResult traceRay(Ray ray, Mesh *m) {
 	if (intersectionFound) {
 		RayResult r;
 		r.valid = true;
-		r.color = info.face.mtl.color;
 		r.intersection = info;
 		return r;
 	} else {
@@ -825,54 +941,227 @@ inline RayResult traceRay(Ray ray, Mesh *m) {
 	}
 }
 
-inline void traceMeshBounded(Mesh *m, Camera *cam, Framebuffer *f, size_t sx, size_t sy, size_t w, size_t h) {
+struct PointLight {
+	glm::vec3 pos;
+	float radius;
+	float falloff;
+	glm::vec3 color;
+	std::vector<float> shadowMapA;
+	std::vector<float> shadowMapB;
+};
+
+class Environment {
+	public:
+		std::vector<PointLight> pointLights;
+		float ambient;
+
+		Environment(std::vector<PointLight> pointLights, float ambient) {
+			this->pointLights = pointLights;
+			this->ambient = ambient;
+		}
+};
+
+template <typename T>
+inline T interpUV(T a, T b, T c, float u, float v) {
+	T d = a + (b - a) + (c - a);
+	return a*(float(1.0)-u)*(float(1.0)-v) + b*u*(float(1.0)-v) + c*(float(1.0)-u)*v + d*u*v;
+}
+
+inline glm::vec3 fresnelSchlick(float cos_theta, glm::vec3 f0) {
+	return f0 + (glm::vec3(1.0) - f0) * powf32(1.0 - cos_theta, 5.0);
+}
+
+inline glm::vec3 fresnelSchlickRoughness(float cos_theta, glm::vec3 f0, float roughness) {
+	return f0 + (glm::max(glm::vec3(1.0 - roughness), f0), -f0) * powf32(std::fmax(1.0 - cos_theta, 0.0), 5.0);
+}
+
+inline float distrubitionGGX(glm::vec3 n, glm::vec3 h, float roughness) {
+	float a = roughness * roughness;
+	float a2 = a * a;
+	float n_dot_h = std::fmax(glm::dot(n, h), 0.0);
+	float denom = (n_dot_h * n_dot_h * (a2 - 1.0) + 1.0);
+	return a2 / (PI * denom * denom);
+}
+
+inline float geometry_schlickGGX(float n_dot_v, float roughness) {
+	float r = (roughness + 1.0);
+	float k = (r * r) / 8.0;
+
+	return n_dot_v / (n_dot_v * (1.0 - k) + k);
+}
+
+inline float geometry_smith(glm::vec3 n, glm::vec3 v, glm::vec3 l, float roughness) {
+	float n_dot_v = std::fmax(glm::dot(n, v), 0.0);
+	float n_dot_l = std::fmax(glm::dot(n, l), 0.0);
+	float ggx2 = geometry_schlickGGX(n_dot_v, roughness);
+	float ggx1 = geometry_schlickGGX(n_dot_l, roughness);
+
+	return ggx1 * ggx2;
+}
+
+inline glm::vec3 point_light_calc(
+	PointLight light,
+	glm::vec3 view_pos,
+	glm::vec3 world_pos,
+	glm::vec3 normal,
+	glm::vec3 albedo,
+	float roughness,
+	float metallic
+) {
+	glm::vec3 to_light = light.pos - world_pos;
+	glm::vec3 to_light_unit = glm::normalize(to_light);
+	glm::vec3 view = glm::normalize(view_pos - world_pos);
+
+	glm::vec3 halfway = glm::normalize(view + to_light_unit);
+
+	float distance2 = glm::dot(to_light, to_light);
+	float attenuation = 1.0 / (0.0001 + light.falloff * distance2);
+	glm::vec3 radiance = light.color * attenuation;
+
+	glm::vec3 f0 = glm::vec3(0.04);
+	f0 = glm::mix(f0, albedo, metallic);
+	glm::vec3 f = fresnelSchlick(std::fmax(glm::dot(halfway, view), 0.0), f0);
+
+	float ndf = distrubitionGGX(normal, halfway, roughness);
+	float g = geometry_smith(normal, view, to_light_unit, roughness);
+
+	glm::vec3 numerator = ndf * g * f;
+	float denominator = 4.0 * std::fmax(glm::dot(normal, view), 0.0) * std::fmax(glm::dot(normal, to_light_unit), 0.0);
+	glm::vec3 specular = numerator / std::fmax(denominator, float(0.001));
+
+	glm::vec3 ks = f;
+	glm::vec3 kd = glm::vec3(1.0) - ks;
+	kd *= 1.0 - metallic;
+
+	float n_dot_l = std::fmax(glm::dot(normal, to_light_unit), 0.0);
+
+	return (kd * albedo / float(PI) + specular) * radiance * n_dot_l;
+}
+
+class GeometryBuffer {
+	public:
+		size_t width;
+		size_t height;
+		std::vector<glm::vec3> world_pos;
+		std::vector<glm::vec3> normal;
+		std::vector<glm::vec2> uv;
+		std::vector<int> material;
+		std::vector<float> depth;
+		std::vector<glm::vec2> motion;
+
+		GeometryBuffer(size_t width, size_t height) {
+			this->width = width;
+			this->height = height;
+			this->world_pos = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
+			this->depth = std::vector<float>(this->width * this->height, 0.0);
+			this->material = std::vector<int>(this->width * this->height, -1);
+			this->motion = std::vector<glm::vec2>(this->width * this->height, glm::vec2(0.0));
+		}
+
+		void clear() {
+			this->world_pos = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
+			this->depth = std::vector<float>(this->width * this->height, 0.0);
+			this->material = std::vector<int>(this->width * this->height, -1);			
+			this->motion = std::vector<glm::vec2>(this->width * this->height, glm::vec2(0.0));
+		}
+
+		inline size_t index(size_t x, size_t y) {
+			if (x < 0 || x >= this->width) {
+				return -1;
+			}
+
+			if (y < 0 || y >= this->height) {
+				return -1;
+			}
+
+			return x + y * this->width;
+		}
+};
+
+inline void traceMeshBounded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t sx, size_t sy, size_t w, size_t h) {
 	glm::mat3 pitch_mat = glm::mat3(
 		glm::vec3(1.0, 0.0, 0.0),
-		glm::vec3(0.0, cos(cam->pitch), -sin(cam->pitch)),
-		glm::vec3(0.0, sin(cam->pitch), cos(cam->pitch))
+		glm::vec3(0.0, cos(cam->getPitch()), -sin(cam->getPitch())),
+		glm::vec3(0.0, sin(cam->getPitch()), cos(cam->getPitch()))
 	);
 	glm::mat3 yaw_mat = glm::mat3(
-		glm::vec3(cos(-cam->yaw), 0.0, sin(-cam->yaw)),
+		glm::vec3(cos(-cam->getYaw()), 0.0, sin(-cam->getYaw())),
 		glm::vec3(0.0, 1.0, 0.0),
-		glm::vec3(-sin(-cam->yaw), 0.0, cos(-cam->yaw))
+		glm::vec3(-sin(-cam->getYaw()), 0.0, cos(-cam->getYaw()))
 	);
 	glm::mat3 mat = pitch_mat * yaw_mat;
+
+	glm::mat3 last_pitch_mat = glm::mat3(
+		glm::vec3(1.0, 0.0, 0.0),
+		glm::vec3(0.0, cos(cam->getLastPitch()), -sin(cam->getLastPitch())),
+		glm::vec3(0.0, sin(cam->getLastPitch()), cos(cam->getLastPitch()))
+	);
+	glm::mat3 last_yaw_mat = glm::mat3(
+		glm::vec3(cos(-cam->getLastYaw()), 0.0, sin(-cam->getLastYaw())),
+		glm::vec3(0.0, 1.0, 0.0),
+		glm::vec3(-sin(-cam->getLastYaw()), 0.0, cos(-cam->getLastYaw()))
+	);
+	glm::mat3 last_mat = last_pitch_mat * last_yaw_mat;
+
 	for (size_t y = sy; y < sy + h; y++) {
 		for (size_t x = sx; x < sx + w; x++) {
 			Ray ray;
-			ray.src = cam->pos;
+			ray.src = cam->getPos();
 			ray.dir = glm::normalize(mat * glm::vec3(
-					(2 * float(x)) / f->width() - 1,
-					-((2 * float(y)) / f->height() - 1),
-					-cam->f));
+					((2 * float(x)) / g->width - 1) * (float(g->width) / float(g->height)),
+					-((2 * float(y)) / g->height - 1),
+					-cam->getF()));
 			
 			RayResult r = traceRay(ray, m);
-
 			if (r.valid) {
-				Ray shadowRay;
-				shadowRay.src = ray.src + ray.dir * r.intersection.t;
-				glm::vec3 lightPos = glm::vec3(0.0, 1.1, 0.0);
-				shadowRay.dir = glm::normalize(lightPos - shadowRay.src);
-				shadowRay.src += float(0.01) * shadowRay.dir;
-				
-				RayResult shadowResult = traceRay(shadowRay, m);
+				IntersectionInfo info = r.intersection;
 
-				PixCoord p;
-				p.x = x;
-				p.y = y;
-				p.depth = 0.1;
-				
-				if (!shadowResult.valid || shadowResult.intersection.t >= glm::length(lightPos - shadowRay.src)) {
-					f->putPixel(p, r.color);
+				glm::vec3 world_pos = ray.src + ray.dir * info.t;
+
+				Face face = info.face;
+				glm::vec3 e1 = face.b.pos - face.a.pos;
+				glm::vec3 e2 = face.c.pos - face.a.pos;
+				glm::vec3 normal;
+				if (face.hasNormals) {
+					normal = glm::normalize(interpUV(face.a.normal, face.b.normal, face.c.normal, info.u, info.v));
 				} else {
-					f->putPixel(p, r.color * float(0.1));
+					normal = glm::normalize(glm::cross(e1, e2));
 				}
+
+				glm::vec2 uv;
+				if (face.hasUvs) {
+					uv = interpUV(face.a.uv, face.b.uv, face.c.uv, info.u, info.v);
+				} else {
+					uv = glm::vec2(0.0);
+				}
+
+				glm::vec3 last_device_pos = last_mat * (world_pos - cam->getPos());
+				last_device_pos.x = -cam->getF() * (last_device_pos.x / last_device_pos.z);
+				last_device_pos.y = cam->getF() * (last_device_pos.y / last_device_pos.z);
+				last_device_pos.z = -last_device_pos.z;
+
+				glm::vec2 half = glm::vec2(0.5);
+				glm::vec2 screen_pos = glm::vec2(float(x), float(y));
+				glm::vec2 last_screen_pos = (half * glm::vec2(last_device_pos) + half) * glm::vec2(float(g->width - 1), float(g->height - 1));
+				glm::vec2 motion = screen_pos - last_screen_pos;
+
+				size_t index = g->index(x, y);
+				g->world_pos[index] = world_pos;
+				g->normal[index] = normal;
+				g->uv[index] = uv;
+				g->material[index] = face.mtl;
+				g->depth[index] = info.t;
+				g->motion[index] = motion;
 			}
 		}
 	}
 }
 
-inline void traceMeshTreaded(Mesh *m, Camera *cam, Framebuffer *f, size_t numThreads) {
+inline void traceMeshThreaded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t numThreads) {
 	std::vector<std::thread> threads;
 
 	size_t h = HEIGHT / numThreads;
@@ -882,7 +1171,7 @@ inline void traceMeshTreaded(Mesh *m, Camera *cam, Framebuffer *f, size_t numThr
 	size_t x = 0;
 
 	for (int i = 0; i < numThreads; i++) {
-		std::thread t(traceMeshBounded, m, cam, f, x, y, w, h);
+		std::thread t(traceMeshBounded, m, cam, g, x, y, w, h);
 		threads.push_back(std::move(t));
 		y += h;
 	}
@@ -892,102 +1181,208 @@ inline void traceMeshTreaded(Mesh *m, Camera *cam, Framebuffer *f, size_t numThr
 	}
 }
 
-struct PointLight {
-	glm::vec3 pos;
-	float falloff;
-	glm::vec3 color;
-};
+inline void traceMesh(Mesh *m, Camera *cam, GeometryBuffer *g) {
+	traceMeshBounded(m, cam, g, 0, 0, g->width, g->height);
+}
 
-struct Environment {
-	std::vector<PointLight> pointLights;
-	float ambient;
-};
+float nextRand() {
+	// https://stackoverflow.com/questions/686353/random-float-number-generation
+	return static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+}
 
-inline void traceMesh(Mesh *m, Camera *cam, Framebuffer *f, Environment *env) {
-	glm::mat3 pitch_mat = glm::mat3(
-		glm::vec3(1.0, 0.0, 0.0),
-		glm::vec3(0.0, cos(cam->pitch), -sin(cam->pitch)),
-		glm::vec3(0.0, sin(cam->pitch), cos(cam->pitch))
-	);
-	glm::mat3 yaw_mat = glm::mat3(
-		glm::vec3(cos(-cam->yaw), 0.0, sin(-cam->yaw)),
-		glm::vec3(0.0, 1.0, 0.0),
-		glm::vec3(-sin(-cam->yaw), 0.0, cos(-cam->yaw))
-	);
-	glm::mat3 mat = pitch_mat * yaw_mat;
-	for (size_t y = 0; y < f->height(); y++) {
-		for (size_t x = 0; x < f->width(); x++) {
-			Ray ray;
-			ray.src = cam->pos;
-			ray.dir = glm::normalize(mat * glm::vec3(
-					(2 * float(x)) / f->width() - 1,
-					-((2 * float(y)) / f->height() - 1),
-					-cam->f));
-			
-			RayResult r = traceRay(ray, m);
-			glm::vec3 albedo = glm::vec3(r.color.x, r.color.y, r.color.z);
+// https://medium.com/@alexander.wester/ray-tracing-soft-shadows-in-real-time-a53b836d123b
+glm::vec3 getConeSample(glm::vec3 direction, float coneAngle) {
+	float cosAngle = cos(coneAngle);
+	float z = nextRand() * (1.0 - cosAngle) + cosAngle;
+	float phi = nextRand() * 2.0 * PI;
 
-			glm::vec3 result = glm::vec3(0.0);
-			result += albedo * env->ambient;
+	float x = sqrt(1.0 - z * z) * cos(phi);
+	float y = sqrt(1.0 - z * z) * sin(phi);
+	glm::vec3 north = glm::vec3(0.0, 0.0, 1.0);
 
-			for (auto &l : env->pointLights) {
-				glm::vec3 toLight = l.pos - (ray.src + ray.dir * r.intersection.t);
-				float d2 = toLight.x * toLight.x + toLight.y * toLight.y + toLight.z * toLight.z;
-				float attenuation = 1.0 / (d2 * l.falloff);
+	glm::vec3 axis = glm::normalize(glm::cross(north, glm::normalize(direction)));
+	float angle = acos(glm::dot(glm::normalize(direction), north));
 
-				Face face = r.intersection.face;
-				glm::vec3 e1 = face.b.pos - face.a.pos;
-				glm::vec3 e2 = face.c.pos - face.a.pos;
+	glm::mat3 R = glm::mat3(glm::rotate(glm::mat4(), angle, axis));
+	return R * glm::vec3(x, y, z);
+}
 
-				glm::vec3 normal = glm::cross(e1, e2);
+// https://medium.com/@alexander.wester/ray-tracing-soft-shadows-in-real-time-a53b836d123b
+inline void shadowBounded(Mesh *m, GeometryBuffer *g, Environment *env, float alpha, size_t sx, size_t sy, size_t w, size_t h) {
+	for (size_t y = sy; y < sy+h; y++) {
+		for (size_t x = sx; x < sx+w; x++) {
+			size_t index = g->index(x, y);
+			int mtl_idx = g->material[index];
+			if (mtl_idx == -1) {
+				continue;
+			}
 
-				if (r.valid) {
-					Ray shadowRay;
-					shadowRay.src = ray.src + ray.dir * r.intersection.t;
-					shadowRay.dir = glm::normalize(l.pos - shadowRay.src);
-					shadowRay.src += float(0.001) * shadowRay.dir;
-					
-					RayResult shadowResult = traceRay(shadowRay, m);
-					
-					if (!shadowResult.valid || shadowResult.intersection.t >= glm::length(l.pos - shadowRay.src)) {
-						result += albedo * attenuation;
+			glm::vec3 world_pos = g->world_pos[index];
+			glm::vec3 normal = g->normal[index];
+
+			for (auto &light : env->pointLights) {
+				glm::vec3 toLight = glm::normalize(light.pos - world_pos);
+				glm::vec3 perpL = glm::cross(toLight, glm::vec3(0.0, 1.0, 0.0));
+				if (perpL.x == 0.0 && perpL.y == 0.0 && perpL.z == 0.0) {
+					perpL.x = 1.0;
+				}
+
+				glm::vec3 toLightEdge = glm::normalize((light.pos + perpL * light.radius) - world_pos);
+				float angle = std::acos(glm::dot(toLight, toLightEdge)) * 2.0;
+				
+				float density = 0.0;
+				int samples = 1;
+				for (int i = 0; i < samples; i++) {
+					Ray ray;
+					ray.dir = getConeSample(toLight, angle);
+					ray.src = world_pos + float(0.0001) * normal;
+
+					RayResult res = traceRay(ray, m);
+
+					if (res.valid) {
+						if (res.intersection.t < glm::length(light.pos - world_pos)) {
+							density += 1.0;
+						}
 					}
 				}
+			
+				glm::vec2 motion = g->motion[index];
+				std::cout << motion.x << " " << motion.y << std::endl;
+				glm::vec2 prev_coord = glm::vec2(x, y) - motion;
+				size_t prev_index = g->index(int(prev_coord.x), int(prev_coord.y));
+				float prev_density = light.shadowMapB[prev_index];
+				light.shadowMapA[index] = alpha * (density / float(samples)) + (float(1.0) - alpha) * prev_density;
 			}
+		}
+	}
+}
+
+inline void shadowThreaded(Mesh *m, GeometryBuffer *g, Environment *env, float alpha, size_t numThreads) {
+	for (auto &light : env->pointLights) {
+		std::swap(light.shadowMapA, light.shadowMapB);
+		light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
+	}
+
+	std::vector<std::thread> threads;
+
+	size_t h = HEIGHT / numThreads;
+	size_t w = WIDTH;
+
+	size_t y = 0;
+	size_t x = 0;
+
+	for (int i = 0; i < numThreads; i++) {
+		std::thread t(shadowBounded, m, g, env, alpha, x, y, w, h);
+		threads.push_back(std::move(t));
+		y += h;
+	}
+
+	for (auto &t : threads) {
+		t.join();
+	}
+}
+
+inline void shadow(Mesh *m, GeometryBuffer *g, Environment *env, float alpha) {
+	for (auto &light : env->pointLights) {
+		std::swap(light.shadowMapA, light.shadowMapB);
+		light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
+	}
+
+	shadowBounded(m, g, env, alpha, 0, 0, g->width, g->height);
+}
+
+
+inline void lightingBounded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
+	for (size_t y = sy; y < sy+h; y++) {
+		for (size_t x = sx; x < sx+w; x++) {
+			size_t index = g->index(x, y);
+			int mtl_idx = g->material[index];
+			if (mtl_idx == -1) {
+				continue;
+			}
+
+			glm::vec3 world_pos = g->world_pos[index];
+			glm::vec3 normal = g->normal[index];
+			float depth = g->depth[index];
+			Material mtl = m->materials[mtl_idx];
+
+			// TODO load from material
+			float roughness = 0.9;
+			float metallic = 0.0;
+			glm::vec3 albedo = glm::vec3(mtl.color);
 
 			PixCoord p;
 			p.x = x;
 			p.y = y;
-			p.depth = 0.1;
+			p.depth = depth;
+			
+			glm::vec3 result = glm::vec3(0.0); 
+			result += albedo * env->ambient;
+
+			for (auto &light : env->pointLights) {
+				glm::vec3 light_color = point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
+				float shadow = light.shadowMapA[index];
+				result += (float(1.0) - shadow) * light_color;
+			}
 
 			f->putPixel(p, glm::vec4(result.x, result.y, result.z, 1.0));
 		}
 	}
 }
 
+inline void lightingThreaded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t numThreads) {
+	std::vector<std::thread> threads;
+
+	size_t h = HEIGHT / numThreads;
+	size_t w = WIDTH;
+
+	size_t y = 0;
+	size_t x = 0;
+
+	for (int i = 0; i < numThreads; i++) {
+		std::thread t(lightingBounded, m, g, f, cam, env, x, y, w, h);
+		threads.push_back(std::move(t));
+		y += h;
+	}
+
+	for (auto &t : threads) {
+		t.join();
+	}
+}
+
+inline void lighting(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env) {
+	lightingBounded(m, g, f, cam, env, 0, 0, g->width, g->height);
+}
+
 int main(int argc, char *argv[]) {
 	glm::mat4 model = glm::mat4(
-		0.5, 0.0, 0.0, 0.0, 
+		0.5, 0.0, 0.0, 0.0,
 		0.0, 0.5, 0.0, 0.0,
 		0.0, 0.0, 0.5, 0.0,
 		0.0, 0.0, 0.0, 1.0
 	);
-	Mesh m = Mesh("cornell-box.obj", model);
+	Mesh m = Mesh("model.obj", model);
 
-	float theta = 0.0;
+	float theta = 0.1;
 	Camera cam = Camera(theta);
 
 	PointLight light;
 	light.pos = glm::vec3(0.0, 1.0, 0.0);
-	light.falloff = 1.0;
+	light.falloff = 0.1;
 	light.color = glm::vec3(1.0);
+	light.radius = 0.2;
+	light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
+	light.shadowMapB = std::vector<float>(WIDTH * HEIGHT, 0.0);
 
-	Environment env;
-	env.ambient = 0.1;
-	env.pointLights = std::vector<PointLight>();
-	env.pointLights.push_back(light);
+	float ambient = 0.05;
+	std::vector<PointLight> pointLights = std::vector<PointLight>();
+	pointLights.push_back(light);
+	Environment env = Environment(pointLights, ambient);
 
 	MyWindow w = MyWindow(WIDTH, HEIGHT, false);
+	GeometryBuffer g = GeometryBuffer(WIDTH, HEIGHT);
+
+	float alpha = 1.0;
 
 	while (!w.shouldClose) {
 		SDL_Event event;
@@ -1027,13 +1422,21 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		w.window.clearPixels();
-		w.depth = std::vector<float>(w.width() * w.height(), -1000.0);
+		w.clear();
+		g.clear();
 
-		// drawMesh(&m, &cam, &w);
-		traceMesh(&m, &cam, &w, &env);
-		// traceMeshTreaded(&m, &cam, &w, 8);
+		traceMeshThreaded(&m, &cam, &g, 8);
+		shadowThreaded(&m, &g, &env, alpha, 8);
+		lightingThreaded(&m, &g, &w, &cam, &env, 8);
+
+		// traceMesh(&m, &cam, &g);
+		// shadow(&m, &g, &env);
+		// lighting(&m, &g, &w, &cam, &env);
+
+		alpha = 0.3;
 
 		w.window.renderFrame();
+
+		std::cout << "render" << std::endl;
 	}
 }

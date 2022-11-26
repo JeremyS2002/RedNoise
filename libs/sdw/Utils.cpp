@@ -11,6 +11,8 @@ std::vector<std::string> split(const std::string &line, char delimiter) {
 		haystack.erase(0, pos + 1);
 	}
 	// Push the remaining chars onto the vector
-	tokens.push_back(haystack);
+	if (haystack.size() != 0) {
+		tokens.push_back(haystack);
+	}
 	return tokens;
 }
