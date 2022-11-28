@@ -14,11 +14,22 @@
 #include <algorithm>
 #include <thread>
 #include <random>
+#include <list>
+#include <utility>
+#include <limits.h>
+#include <chrono>
 
 #define WIDTH 640
 #define HEIGHT 480
 
 #define PI 3.14159265
+
+static constexpr float MachineEpsilon = std::numeric_limits<float>::epsilon() * 0.5;
+
+// https://pbr-book.org/3ed-2018/Shapes/Managing_Rounding_Error#gamma
+inline constexpr float gamma(int n) {
+	return (n * MachineEpsilon) / (1.0 - n * MachineEpsilon);
+}
 
 template <typename T>
 /// @brief interpolate between from and to n times and return calculated values in a std vector 
@@ -194,8 +205,108 @@ struct Face {
 	int mtl;
 };
 
-class Mesh {
+struct Ray {
+	glm::vec3 src;
+	glm::vec3 dir;
+};
+
+struct Intersection {
+	Face face;
+	float t;
+	float u;
+	float v;
+};
+
+inline bool rayTriangleIntersection(Ray ray, Face face, Intersection *isect) {
+	// std::cout << "ray src: " << ray.src.x << " " << ray.src.y << " " << ray.src.z << std::endl;
+	// std::cout << "ray dir: " << ray.dir.x << " " << ray.dir.y << " " << ray.dir.z << std::endl;
+
+	// std::cout << "a pos  : " << a.pos.x << " " << a.pos.y << " " << a.pos.z << std::endl;
+	// std::cout << "b pos  : " << b.pos.x << " " << b.pos.y << " " << b.pos.z << std::endl;
+	// std::cout << "c pos  : " << c.pos.x << " " << c.pos.y << " " << c.pos.z << std::endl;
+	auto a = face.a;
+	auto b = face.b;
+	auto c = face.c;
+
+	glm::vec3 e0 = b.pos - a.pos;
+	glm::vec3 e1 = c.pos - a.pos;
+	glm::vec3 SPVector = ray.src - a.pos;
+	glm::mat3 DEMatrix(-ray.dir, e0, e1);
+	if (glm::determinant(DEMatrix) == 0.0) {
+		// ray parallel to plane
+		return false;
+	}
+	glm::vec3 possibleSolution = glm::inverse(DEMatrix) * SPVector;
+	isect->face = face;
+	isect->t = possibleSolution.x;
+	isect->u = possibleSolution.y;
+	isect->v = possibleSolution.z;
+
+	if (isect->u < 0.0 || isect->u > 1.0) {
+		return false;
+	}
+
+	if (isect->v < 0.0 || isect->v > 1.0) {
+		return false;
+	}
+
+	if (isect->u + isect->v > 1.0) {
+		return false;
+	}
+
+	if (isect->t <= 0.0) {
+		return false;
+	}
+
+	return true;
+}
+
+class Intersectable {
+	public: 
+		virtual bool Intersect(const Ray &ray, Intersection *isect) = 0;
+		virtual const Material *material(int idx) = 0;
+};
+
+class Mesh: public Intersectable {
 	public:
+		bool Intersect(const Ray &ray, Intersection *isect) {
+			// std::vector<Intersection> intersections;// = std::vector<Intersection>(m->faces.size());
+			bool intersectionFound = false;
+			Intersection info;
+
+			for (auto face = faces.begin(); face != faces.end(); face++) {
+				Intersection i;
+				if (rayTriangleIntersection(ray, *face, &i)) {
+					// std::cout << face->mtl.name << std::endl;
+					if (intersectionFound) {
+						if (i.t < info.t) {
+							info.t = i.t;
+							info.u = i.u;
+							info.v = i.v;
+							info.face = *face;
+						}
+					} else {
+						info.t = i.t;
+						info.u = i.u;
+						info.v = i.v;
+						info.face = *face;
+						intersectionFound = true;
+					}
+				}
+			}
+
+			if (intersectionFound) {
+				(*isect) = info;
+				return true;
+			} else {
+				return false;
+			}
+		}
+
+		const Material *material(int idx) {
+			return &materials[idx];
+		}
+
 		std::vector<Face> faces;
 		std::vector<Material> materials;
 
@@ -409,7 +520,7 @@ inline DeviceCoord world2device(WorldCoord world, Camera *cam) {
 	DeviceCoord device;
 	t = yaw_mat * t;
 	t = pitch_mat * t;
-	device.pos.x = -cam->getF() * (t.x / t.z);
+	device.pos.x = -cam->getF() * ((t.x * (float(HEIGHT) / float(WIDTH))) / t.z);
 	device.pos.y = cam->getF() * (t.y / t.z);
 	device.pos.z = -t.z;
 	return device;
@@ -528,6 +639,11 @@ inline void __internalflatPixTriangle(PixCoord a, PixCoord b, PixCoord c, Materi
 	// std::cout << a.x << " " << a.y << std::endl;
 	// std::cout << b.x << " " << b.y << std::endl;
 	// std::cout << c.x << " " << c.y << std::endl;
+	// std::cout << std::endl;
+	if (a.y == b.y && a.y == c.y) {
+		return;
+	}
+
 	assert(b.y == c.y);
 	assert(a.y != b.y);
 	assert(a.y != c.y);
@@ -835,119 +951,499 @@ class MyWindow : public Framebuffer {
 	}
 };
 
-struct Ray {
-	glm::vec3 src;
-	glm::vec3 dir;
-};
-
-struct Intersection {
-	bool valid;
-	float t;
-	float u;
-	float v;
-};
-
-inline Intersection rayTriangleIntersection(Ray ray, WorldCoord a, WorldCoord b, WorldCoord c) {
-	// std::cout << "ray src: " << ray.src.x << " " << ray.src.y << " " << ray.src.z << std::endl;
-	// std::cout << "ray dir: " << ray.dir.x << " " << ray.dir.y << " " << ray.dir.z << std::endl;
-
-	// std::cout << "a pos  : " << a.pos.x << " " << a.pos.y << " " << a.pos.z << std::endl;
-	// std::cout << "b pos  : " << b.pos.x << " " << b.pos.y << " " << b.pos.z << std::endl;
-	// std::cout << "c pos  : " << c.pos.x << " " << c.pos.y << " " << c.pos.z << std::endl;
-	
-	glm::vec3 e0 = b.pos - a.pos;
-	glm::vec3 e1 = c.pos - a.pos;
-	glm::vec3 SPVector = ray.src - a.pos;
-	glm::mat3 DEMatrix(-ray.dir, e0, e1);
-	if (glm::determinant(DEMatrix) == 0.0) {
-		// ray parallel to plane
-		Intersection i;
-		i.valid = false;
-		return i;
-	}
-	glm::vec3 possibleSolution = glm::inverse(DEMatrix) * SPVector;
-	Intersection i;
-	i.valid = true;
-	i.t = possibleSolution.x;
-	i.u = possibleSolution.y;
-	i.v = possibleSolution.z;
-
-	if (i.u < 0.0 || i.u > 1.0) {
-		i.valid = false;
-	}
-
-	if (i.v < 0.0 || i.v > 1.0) {
-		i.valid = false;
-	}
-
-	if (i.u + i.v > 1.0) {
-		i.valid = false;
-	}
-
-	if (i.t <= 0.0) {
-		i.valid = false;
-	}
-
-	return i;
-}
-
-struct IntersectionInfo {
-	float t;
-	float u;
-	float v;
-	Face face;
-};
-
-struct RayResult {
-	bool valid;
-	IntersectionInfo intersection;
-};
-
-inline RayResult traceRay(Ray ray, Mesh *m) {
-	// std::vector<IntersectionInfo> intersections;// = std::vector<IntersectionInfo>(m->faces.size());
-	bool intersectionFound = false;
-	IntersectionInfo info;
-
-	for (auto face = m->faces.begin(); face != m->faces.end(); face++) {
-		Intersection i = rayTriangleIntersection(ray, face->a, face->b, face->c);
-		if (i.valid) {
-			// std::cout << face->mtl.name << std::endl;
-			if (intersectionFound) {
-				if (i.t < info.t) {
-					info.t = i.t;
-					info.u = i.u;
-					info.v = i.v;
-					info.face = *face;
-				}
-			} else {
-				info.t = i.t;
-				info.u = i.u;
-				info.v = i.v;
-				info.face = *face;
-				intersectionFound = true;
+// https://pbr-book.org/3ed-2018/Utilities/Memory_Management#MemoryArena
+class MemoryArena {
+	public:
+		MemoryArena(size_t blockSize = 262144) : blockSize(blockSize) { }
+		~MemoryArena() {
+			free(currentBlock);
+			for (auto &block : usedBlocks) {
+				free(block.second);
 			}
+			for (auto &block : availableBlocks) {
+				free(block.second);
+			}
+		}
+
+		void *Alloc(size_t nBytes) {
+			// round to machine size (don't know if necissary since not using allocAllgned but can't hurt)
+			nBytes = ((nBytes + 15) & (~15));
+			// if not enough space in current block
+			if (currentBlockPos + nBytes > currentAllocSize) {
+				// and current block is allocated
+				if (currentBlock) {
+					usedBlocks.push_back(std::make_pair(currentAllocSize, currentBlock));
+					currentBlock = nullptr;
+				}
+
+				// try to find 
+				for (auto iter = availableBlocks.begin(); iter != availableBlocks.end(); iter++) {
+					if (iter->first >= nBytes) {
+						currentAllocSize = iter->first;
+						currentBlock = iter->second;
+						availableBlocks.erase(iter);
+						break;
+					}
+				}
+
+				// if didn't find one
+				if (!currentBlock) {
+					currentAllocSize = std::max(nBytes, blockSize);
+					currentBlock = (uint8_t*)malloc(currentAllocSize);
+				}
+				currentBlockPos = 0;
+			}
+			void *ret = currentBlock + currentBlockPos;
+			currentBlockPos += nBytes;
+			return ret;
+		}
+
+		template<typename T>
+		T *Alloc(size_t n = 1, bool runConstructor = true) {
+			T *ret = (T *)Alloc(n * sizeof(T));
+			if (runConstructor) {
+				for (size_t i = 0; i < n; i++) {
+					new (&ret[i]) T();
+				}
+			}
+			return ret;
+		}
+
+		void Reset() {
+			currentBlockPos = 0;
+			availableBlocks.splice(availableBlocks.begin(), usedBlocks);
+		}
+
+		size_t TotalAllocated() const {
+			size_t total = currentAllocSize;
+			for (const auto &alloc : usedBlocks) {
+				total += alloc.first;
+			}
+			for (const auto &alloc : availableBlocks) {
+				total += alloc.first;
+			}
+			return total;
+		}
+
+	private:
+		const size_t blockSize;
+		size_t currentBlockPos = 0;
+		size_t currentAllocSize = 0;
+		uint8_t *currentBlock = nullptr;
+		std::list<std::pair<size_t, uint8_t *>> usedBlocks;
+		std::list<std::pair<size_t, uint8_t *>> availableBlocks;
+};
+
+// https://pbr-book.org/3ed-2018/Geometry_and_Transformations/Bounding_Boxes#Bounds3::MaximumExtent
+struct AABB {
+	glm::vec3 Offset(const glm::vec3 &p) const {
+		glm::vec3 o = p - min;
+		if (max.x > min.x) o.x /= max.x - min.x;
+		if (max.y > min.y) o.y /= max.y - min.y;
+		if (max.z > min.z) o.z /= max.z - min.z;
+		return o;
+	}
+
+	glm::vec3 Diagonal() const {
+		return max - min;
+	}
+
+	int MaximumExtent() const {
+		glm::vec3 d = Diagonal();
+		if (d.x > d.y && d.x > d.z) {
+			return 0;
+		} else if (d.y > d.z) {
+			return 1;
+		} else {
+			return 2;
 		}
 	}
 
-	if (intersectionFound) {
-		RayResult r;
-		r.valid = true;
-		r.intersection = info;
-		return r;
-	} else {
-		RayResult r;
-		r.valid = false;
-		return r;
+	float SurfaceArea() const {
+		glm::vec3 d = Diagonal();
+		return 2.0* (d.x * d.y + d.x * d.z + d.z * d.z);
 	}
+
+	float Volume() const {
+		glm::vec3 d = Diagonal();
+		return d.x * d.y * d.z;
+	}
+
+	inline bool Intersect(const Ray &ray, float *hitt0, float *hitt1) const {
+		float t0 = 0;
+		float t1 = std::numeric_limits<float>::max();
+		// for each axis
+		for (int i = 0; i < 3; i++) {
+			float invRayDir = 1.0 / ray.dir[i];
+			float tNear = (min[i] - ray.src[i]) * invRayDir;
+			float tFar = (max[i] - ray.src[i]) * invRayDir;
+			if (tNear > tFar) {
+				std::swap(tNear, tFar);
+			}
+			// TODO test without this
+			tFar *= 1 + 2 * gamma(3);
+
+			t0 = tNear > t0 ? tNear : t0;
+			t1 = tFar < t1 ? tFar : t1;
+			if (t0 > t1) return false;
+		}
+
+		if (hitt0) *hitt0 = t0;
+		if (hitt1) *hitt1 = t1;
+		return true;
+	}
+
+	inline bool Intersect(const Ray &ray, const glm::vec3 &invDir, int dirIsNeg[3]) const {
+		const AABB &aabb = *this;
+		float tMin = (aabb[dirIsNeg[0]].x - ray.src.x) * invDir.x;
+		float tMax = (aabb[1-dirIsNeg[0]].x - ray.src.x) * invDir.x;
+		float tyMin = (aabb[dirIsNeg[1]].y - ray.src.y) * invDir.y;
+		float tyMax = (aabb[1-dirIsNeg[1]].y - ray.src.y) * invDir.y;
+
+		tMax *= 1 + 2 * gamma(3);
+		tMin *= 1 + 2 * gamma(3);
+
+		if (tMin > tyMax || tyMin > tMax) {
+			return false;
+		}
+		if (tyMin > tMin) tMin = tyMin;
+		if (tyMax < tMax) tMax = tyMax;
+
+		float tzMin = (aabb[dirIsNeg[2]].z - ray.src.z) * invDir.z;
+		float tzMax = (aabb[1-dirIsNeg[2]].z - ray.src.z) * invDir.z;
+		tzMax *= 1 + 2 * gamma(3);
+		if (tMin > tzMax || tzMin > tMax) {
+			return false;
+		}
+		if (tzMin > tMin) tMin = tzMin;
+		if (tzMax < tMax) tMax = tzMax;
+		return tMax > 0;
+	}
+
+	const glm::vec3 &operator[](int i) const {
+		if (i == 0) {
+			return min;
+		} else {
+			return max;
+		}
+	};
+	glm::vec3 &operator[](int i) {
+		if (i == 0) {
+			return min;
+		} else {
+			return max;
+		}
+	};
+
+	glm::vec3 min;
+	glm::vec3 max;
+};
+
+AABB Union(AABB l, AABB r) {
+	AABB n;
+	n.min = glm::min(l.min, r.min);
+	n.max = glm::max(l.max, r.max);
+	return n;
 }
+
+AABB Union(AABB b, glm::vec3 p) {
+	AABB n;
+	n.min = glm::min(b.min, p);
+	n.max = glm::max(b.max, p);
+	return n;
+}
+
+inline AABB bound(Face *f) {
+	AABB n;
+	n.min = glm::min(f->a.pos, glm::min(f->b.pos, f->c.pos));
+	n.max = glm::max(f->a.pos, glm::max(f->b.pos, f->c.pos));
+	return n;
+}
+
+struct BVHBuildNode {
+	void InitLeaf(int first, int n, const AABB &b) {
+		firstFaceOffset = first;
+		nFaces = n;
+		aabb = b;
+		children[0] = nullptr;
+		children[1] = nullptr;
+	}
+
+	void InitInterior(int axis, BVHBuildNode *c0, BVHBuildNode *c1) {
+		children[0] = c0;
+		children[1] = c1;
+		aabb = Union(c0->aabb, c1->aabb);
+		splitAxis = axis;
+		nFaces = 0;
+	}
+
+	AABB aabb;
+	BVHBuildNode *children[2];
+	int splitAxis;
+	int firstFaceOffset;
+	int nFaces;
+};
+
+struct BVHFaceInfo {
+	size_t i;
+	AABB aabb;
+	glm::vec3 centroid;
+};
+
+struct BVHLinearNode {
+	AABB aabb;
+	// why union when both are ints?
+	union {
+		// leaf
+		int facesOffset;
+		// interior
+		int secondChildOffset;
+	};
+	// 0 => interior
+	uint16_t nFaces;
+	// only for interior nodes (xyz) = (012)
+	uint8_t axis;
+	// padding to 32 byte size
+	// if first node is cache aligned then all subsequent will be
+	// no node will straddle cache lines (very smart)
+	// probably useless though since i'm not allocating things alligned
+	uint8_t pad[1];
+};
+
+// https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies
+class BVH: public Intersectable {
+	public:
+		BVH(Mesh *m, int maxFacesInNode) : maxFacesInNode(maxFacesInNode), faces(m->faces), materials(m->materials) {
+			if (faces.size() == 0) {
+				return;
+			}
+
+			std::vector<BVHFaceInfo> faceInfo(faces.size());
+			for (size_t i = 0; i < faces.size(); i++) {
+				BVHFaceInfo info;
+				info.i = i;
+				info.aabb = bound(&faces[i]);
+				info.centroid = (info.aabb.min + info.aabb.max) / float(2.0);
+				faceInfo[i] = info;
+			}
+
+			MemoryArena arena(1024 * 1024);
+			int totalNodes = 0;
+			std::vector<Face> orderedFaces;
+
+			BVHBuildNode *root = recursiveBuild(arena, faceInfo, 0, faces.size(), &totalNodes, orderedFaces);
+
+			faces.swap(orderedFaces);
+
+			nodes = (BVHLinearNode*)malloc(totalNodes * sizeof(BVHLinearNode));
+			int offset = 0;
+			flattenTree(root, &offset);
+		}
+
+		~BVH() {
+			free(this->nodes);
+		}
+
+		bool Intersect(const Ray &ray, Intersection *isect) {
+			bool hit = false;
+			float closest_hit = std::numeric_limits<float>::max();
+			glm::vec3 invDir = glm::vec3(1.0 / ray.dir.x, 1.0 / ray.dir.y, 1.0 / ray.dir.z);
+			int dirIsNeg[3] = { invDir.x < 0, invDir.y < 0, invDir.z < 0 };
+
+			int toVisitOffset = 0;
+			int currentNodeIndex = 0;
+			int nodesToVisit[64];
+			while (true) {
+				const BVHLinearNode *node = &nodes[currentNodeIndex];
+				if (node->aabb.Intersect(ray, invDir, dirIsNeg)) {
+					if (node->nFaces > 0) {
+						// then leaf node
+						for (int i = 0; i < node->nFaces; i++) {
+							Intersection test_isect;
+							if (rayTriangleIntersection(ray, faces[node->facesOffset+i], &test_isect)) {
+								hit = true;
+								if (test_isect.t < closest_hit) {
+									closest_hit = test_isect.t;
+									(*isect) = test_isect;
+								}
+							}
+						}
+						if (toVisitOffset == 0) break;
+						currentNodeIndex = nodesToVisit[--toVisitOffset];
+					} else {
+						if (dirIsNeg[node->axis]) {
+							nodesToVisit[toVisitOffset++] = currentNodeIndex + 1;
+							currentNodeIndex = node->secondChildOffset;
+						} else {
+							nodesToVisit[toVisitOffset++] = node->secondChildOffset;
+							currentNodeIndex = currentNodeIndex + 1;
+						}
+					}
+				} else {
+					if (toVisitOffset == 0) break;
+					currentNodeIndex = nodesToVisit[--toVisitOffset];
+				}
+			}
+			return hit;
+		}
+
+		const Material *material(int idx) {
+			return &materials[idx];
+		}
+
+	private:
+		BVHBuildNode *recursiveBuild(
+			MemoryArena &arena, 
+			std::vector<BVHFaceInfo> &faceInfo, 
+			int start, 
+			int end,
+			int *totalNodes,
+			std::vector<Face> &orderedFaces
+		) {
+			BVHBuildNode *node = arena.Alloc<BVHBuildNode>();
+			(*totalNodes)++;
+			AABB aabb;
+			for (int i = start; i < end; i++) {
+				aabb = Union(aabb, faceInfo[i].aabb);
+			}
+
+			int nFaces = end - start;
+			if (nFaces == 1) {
+				// if only one face must be a leaf
+				int firstFaceOffset = orderedFaces.size();
+				for (int i = start; i < end; i++) {
+					int faceNum = faceInfo[i].i;
+					orderedFaces.push_back(faces[faceNum]);
+				}
+				node->InitLeaf(firstFaceOffset, nFaces, aabb);
+				return node;
+			} else {
+				AABB centroidAABB;
+				centroidAABB.min = faceInfo[start].centroid;
+				centroidAABB.max = faceInfo[start].centroid;
+				for (int i = start+1; i < end; i++) {
+					centroidAABB = Union(centroidAABB, faceInfo[i].centroid);
+				}
+				int dim = centroidAABB.MaximumExtent();
+
+				int mid = (start + end) / 2;
+				
+				if (centroidAABB.max[dim] == centroidAABB.min[dim]) {
+					// if the bounds have 0 volume then make a leaf
+					// kinda strange scenario
+					int firstFaceOffset = orderedFaces.size();
+					for (int i = start; i < end; i++) {
+						int faceNum = faceInfo[i].i;
+						orderedFaces.push_back(faces[faceNum]);
+					}
+					node->InitLeaf(firstFaceOffset, nFaces, aabb);
+					return node;
+				} else {
+					// split by surface area heuristic
+					if (nFaces <= 4) {
+						mid = (start + end) / 2;
+						std::nth_element(&faceInfo[start], &faceInfo[mid], &faceInfo[end-1]+1,
+							[dim](const BVHFaceInfo &a, const BVHFaceInfo &b) {
+								return a.centroid[dim] < b.centroid[dim];
+							});
+					} else {
+						constexpr int nBuckets = 12;
+						struct BucketInfo {
+							int count = 0;
+							AABB aabb;
+						};
+						BucketInfo buckets[nBuckets];
+
+						for (int i = start; i < end; i++) {
+							int b = nBuckets * centroidAABB.Offset(faceInfo[i].centroid)[dim];
+							if (b == nBuckets) b = nBuckets - 1;
+							buckets[b].count++;
+							buckets[b].aabb = Union(buckets[b].aabb, faceInfo[i].aabb);
+						}
+
+						float costs[nBuckets - 1];
+						for (int i = 0; i < nBuckets - 1; i++) {
+							AABB b0, b1;
+							int count0 = 0, count1 = 0;
+							for (int j = 0; j <= i; j++) {
+								b0 = Union(b0, buckets[j].aabb);
+								count0 += buckets[j].count;
+							}
+							for (int j = i+1; j < nBuckets; j++) {
+								b1 = Union(b1, buckets[j].aabb);
+								count1 += buckets[j].count;
+							}
+							costs[i] = 0.125 + (count0 * b0.SurfaceArea() + count1 * b1.SurfaceArea()) / aabb.SurfaceArea();
+						}
+
+						float minCost = costs[0];
+						int minCostSplitBucket = 0;
+						for (int i = 1; i < nBuckets - 1; i++) {
+							if (costs[i] < minCost) {
+								minCost = costs[i];
+								minCostSplitBucket = i;
+							}
+						}
+
+						float leafCost = nFaces;
+						if (nFaces > maxFacesInNode || minCost < leafCost) {
+							// if have to split or better to split then make an interior node
+							BVHFaceInfo *fmid = std::partition(&faceInfo[start], &faceInfo[end-1]+1,
+								[=](const BVHFaceInfo &fi) {
+									int b = nBuckets * centroidAABB.Offset(fi.centroid)[dim];
+									if (b == nBuckets) b = nBuckets - 1;
+									return b <= minCostSplitBucket;
+								});
+							mid = fmid - &faceInfo[0];
+						} else {
+							// otherwise make a leaf
+							int firstFaceOffset = orderedFaces.size();
+							for (int i = start; i < end; i++) {
+								int faceNum = faceInfo[i].i;
+								orderedFaces.push_back(faces[faceNum]);
+							}
+							node->InitLeaf(firstFaceOffset, nFaces, aabb);
+							return node;
+						}
+					}
+					node->InitInterior(
+						dim, 
+						recursiveBuild(arena, faceInfo, start, mid, totalNodes, orderedFaces),
+						recursiveBuild(arena, faceInfo, mid, end, totalNodes, orderedFaces)
+					);
+				}
+			}
+			return node;
+		}
+
+		int flattenTree(BVHBuildNode *node, int *offset) {
+			BVHLinearNode *linearNode = &nodes[*offset];
+			linearNode->aabb = node->aabb;
+			int myOffset = (*offset)++;
+			if (node->nFaces > 0) {
+				linearNode->facesOffset = node->firstFaceOffset;
+				linearNode->nFaces = node->nFaces;
+			} else {
+				linearNode->axis = node->splitAxis;
+				linearNode->nFaces = 0;
+				flattenTree(node->children[0], offset);
+				linearNode->secondChildOffset = flattenTree(node->children[1], offset);
+			}
+			return myOffset;
+		}
+
+		const int maxFacesInNode;
+		std::vector<Face> faces;
+		BVHLinearNode *nodes = nullptr;
+		std::vector<Material> materials;
+};
 
 struct PointLight {
 	glm::vec3 pos;
 	float radius;
 	float falloff;
 	glm::vec3 color;
-	std::vector<float> shadowMapA;
-	std::vector<float> shadowMapB;
+	std::vector<float> shadowMap;
 };
 
 class Environment {
@@ -1047,7 +1543,6 @@ class GeometryBuffer {
 		std::vector<glm::vec2> uv;
 		std::vector<int> material;
 		std::vector<float> depth;
-		std::vector<glm::vec2> motion;
 
 		GeometryBuffer(size_t width, size_t height) {
 			this->width = width;
@@ -1057,7 +1552,6 @@ class GeometryBuffer {
 			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
 			this->depth = std::vector<float>(this->width * this->height, 0.0);
 			this->material = std::vector<int>(this->width * this->height, -1);
-			this->motion = std::vector<glm::vec2>(this->width * this->height, glm::vec2(0.0));
 		}
 
 		void clear() {
@@ -1066,7 +1560,6 @@ class GeometryBuffer {
 			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
 			this->depth = std::vector<float>(this->width * this->height, 0.0);
 			this->material = std::vector<int>(this->width * this->height, -1);			
-			this->motion = std::vector<glm::vec2>(this->width * this->height, glm::vec2(0.0));
 		}
 
 		inline size_t index(size_t x, size_t y) {
@@ -1082,7 +1575,7 @@ class GeometryBuffer {
 		}
 };
 
-inline void traceMeshBounded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t sx, size_t sy, size_t w, size_t h) {
+inline void traceBounded(Intersectable *m, Camera *cam, GeometryBuffer *g, size_t sx, size_t sy, size_t w, size_t h) {
 	glm::mat3 pitch_mat = glm::mat3(
 		glm::vec3(1.0, 0.0, 0.0),
 		glm::vec3(0.0, cos(cam->getPitch()), -sin(cam->getPitch())),
@@ -1095,18 +1588,6 @@ inline void traceMeshBounded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t sx,
 	);
 	glm::mat3 mat = pitch_mat * yaw_mat;
 
-	glm::mat3 last_pitch_mat = glm::mat3(
-		glm::vec3(1.0, 0.0, 0.0),
-		glm::vec3(0.0, cos(cam->getLastPitch()), -sin(cam->getLastPitch())),
-		glm::vec3(0.0, sin(cam->getLastPitch()), cos(cam->getLastPitch()))
-	);
-	glm::mat3 last_yaw_mat = glm::mat3(
-		glm::vec3(cos(-cam->getLastYaw()), 0.0, sin(-cam->getLastYaw())),
-		glm::vec3(0.0, 1.0, 0.0),
-		glm::vec3(-sin(-cam->getLastYaw()), 0.0, cos(-cam->getLastYaw()))
-	);
-	glm::mat3 last_mat = last_pitch_mat * last_yaw_mat;
-
 	for (size_t y = sy; y < sy + h; y++) {
 		for (size_t x = sx; x < sx + w; x++) {
 			Ray ray;
@@ -1116,52 +1597,39 @@ inline void traceMeshBounded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t sx,
 					-((2 * float(y)) / g->height - 1),
 					-cam->getF()));
 			
-			RayResult r = traceRay(ray, m);
-			if (r.valid) {
-				IntersectionInfo info = r.intersection;
+			Intersection isect;
+			if (m->Intersect(ray, &isect)) {
+				glm::vec3 world_pos = ray.src + ray.dir * isect.t;
 
-				glm::vec3 world_pos = ray.src + ray.dir * info.t;
-
-				Face face = info.face;
+				Face face = isect.face;
 				glm::vec3 e1 = face.b.pos - face.a.pos;
 				glm::vec3 e2 = face.c.pos - face.a.pos;
 				glm::vec3 normal;
 				if (face.hasNormals) {
-					normal = glm::normalize(interpUV(face.a.normal, face.b.normal, face.c.normal, info.u, info.v));
+					normal = glm::normalize(interpUV(face.a.normal, face.b.normal, face.c.normal, isect.u, isect.v));
 				} else {
 					normal = glm::normalize(glm::cross(e1, e2));
 				}
 
 				glm::vec2 uv;
 				if (face.hasUvs) {
-					uv = interpUV(face.a.uv, face.b.uv, face.c.uv, info.u, info.v);
+					uv = interpUV(face.a.uv, face.b.uv, face.c.uv, isect.u, isect.v);
 				} else {
 					uv = glm::vec2(0.0);
 				}
-
-				glm::vec3 last_device_pos = last_mat * (world_pos - cam->getPos());
-				last_device_pos.x = -cam->getF() * (last_device_pos.x / last_device_pos.z);
-				last_device_pos.y = cam->getF() * (last_device_pos.y / last_device_pos.z);
-				last_device_pos.z = -last_device_pos.z;
-
-				glm::vec2 half = glm::vec2(0.5);
-				glm::vec2 screen_pos = glm::vec2(float(x), float(y));
-				glm::vec2 last_screen_pos = (half * glm::vec2(last_device_pos) + half) * glm::vec2(float(g->width - 1), float(g->height - 1));
-				glm::vec2 motion = screen_pos - last_screen_pos;
 
 				size_t index = g->index(x, y);
 				g->world_pos[index] = world_pos;
 				g->normal[index] = normal;
 				g->uv[index] = uv;
 				g->material[index] = face.mtl;
-				g->depth[index] = info.t;
-				g->motion[index] = motion;
+				g->depth[index] = isect.t;
 			}
 		}
 	}
 }
 
-inline void traceMeshThreaded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t numThreads) {
+inline void traceThreaded(Intersectable *m, Camera *cam, GeometryBuffer *g, size_t numThreads) {
 	std::vector<std::thread> threads;
 
 	size_t h = HEIGHT / numThreads;
@@ -1171,7 +1639,7 @@ inline void traceMeshThreaded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t nu
 	size_t x = 0;
 
 	for (int i = 0; i < numThreads; i++) {
-		std::thread t(traceMeshBounded, m, cam, g, x, y, w, h);
+		std::thread t(traceBounded, m, cam, g, x, y, w, h);
 		threads.push_back(std::move(t));
 		y += h;
 	}
@@ -1181,8 +1649,8 @@ inline void traceMeshThreaded(Mesh *m, Camera *cam, GeometryBuffer *g, size_t nu
 	}
 }
 
-inline void traceMesh(Mesh *m, Camera *cam, GeometryBuffer *g) {
-	traceMeshBounded(m, cam, g, 0, 0, g->width, g->height);
+inline void trace(Intersectable *m, Camera *cam, GeometryBuffer *g) {
+	traceBounded(m, cam, g, 0, 0, g->width, g->height);
 }
 
 float nextRand() {
@@ -1208,7 +1676,7 @@ glm::vec3 getConeSample(glm::vec3 direction, float coneAngle) {
 }
 
 // https://medium.com/@alexander.wester/ray-tracing-soft-shadows-in-real-time-a53b836d123b
-inline void shadowBounded(Mesh *m, GeometryBuffer *g, Environment *env, float alpha, size_t sx, size_t sy, size_t w, size_t h) {
+inline void shadowBounded(Intersectable *m, GeometryBuffer *g, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
 	for (size_t y = sy; y < sy+h; y++) {
 		for (size_t x = sx; x < sx+w; x++) {
 			size_t index = g->index(x, y);
@@ -1231,38 +1699,31 @@ inline void shadowBounded(Mesh *m, GeometryBuffer *g, Environment *env, float al
 				float angle = std::acos(glm::dot(toLight, toLightEdge)) * 2.0;
 				
 				float density = 0.0;
-				int samples = 1;
+				int samples = 25;
 				for (int i = 0; i < samples; i++) {
 					Ray ray;
 					ray.dir = getConeSample(toLight, angle);
 					ray.src = world_pos + float(0.0001) * normal;
 
-					RayResult res = traceRay(ray, m);
-
-					if (res.valid) {
-						if (res.intersection.t < glm::length(light.pos - world_pos)) {
+					Intersection isect;
+					if (m->Intersect(ray, &isect)) {
+						if (isect.t < glm::length(light.pos - world_pos)) {
 							density += 1.0;
 						}
 					}
 				}
-			
-				glm::vec2 motion = g->motion[index];
-				std::cout << motion.x << " " << motion.y << std::endl;
-				glm::vec2 prev_coord = glm::vec2(x, y) - motion;
-				size_t prev_index = g->index(int(prev_coord.x), int(prev_coord.y));
-				float prev_density = light.shadowMapB[prev_index];
-				light.shadowMapA[index] = alpha * (density / float(samples)) + (float(1.0) - alpha) * prev_density;
+
+				light.shadowMap[index] = density / float(samples);
 			}
 		}
 	}
 }
 
-inline void shadowThreaded(Mesh *m, GeometryBuffer *g, Environment *env, float alpha, size_t numThreads) {
+inline void shadowThreaded(Intersectable *m, GeometryBuffer *g, Environment *env, size_t numThreads) {
 	for (auto &light : env->pointLights) {
-		std::swap(light.shadowMapA, light.shadowMapB);
-		light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
+		light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 	}
-
+	
 	std::vector<std::thread> threads;
 
 	size_t h = HEIGHT / numThreads;
@@ -1272,7 +1733,7 @@ inline void shadowThreaded(Mesh *m, GeometryBuffer *g, Environment *env, float a
 	size_t x = 0;
 
 	for (int i = 0; i < numThreads; i++) {
-		std::thread t(shadowBounded, m, g, env, alpha, x, y, w, h);
+		std::thread t(shadowBounded, m, g, env, x, y, w, h);
 		threads.push_back(std::move(t));
 		y += h;
 	}
@@ -1282,17 +1743,14 @@ inline void shadowThreaded(Mesh *m, GeometryBuffer *g, Environment *env, float a
 	}
 }
 
-inline void shadow(Mesh *m, GeometryBuffer *g, Environment *env, float alpha) {
+inline void shadow(Intersectable *m, GeometryBuffer *g, Environment *env) {
 	for (auto &light : env->pointLights) {
-		std::swap(light.shadowMapA, light.shadowMapB);
-		light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
+		light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 	}
-
-	shadowBounded(m, g, env, alpha, 0, 0, g->width, g->height);
+	shadowBounded(m, g, env, 0, 0, g->width, g->height);
 }
 
-
-inline void lightingBounded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
+inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
 	for (size_t y = sy; y < sy+h; y++) {
 		for (size_t x = sx; x < sx+w; x++) {
 			size_t index = g->index(x, y);
@@ -1304,12 +1762,12 @@ inline void lightingBounded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *
 			glm::vec3 world_pos = g->world_pos[index];
 			glm::vec3 normal = g->normal[index];
 			float depth = g->depth[index];
-			Material mtl = m->materials[mtl_idx];
+			const Material *mtl = m->material(mtl_idx);
 
 			// TODO load from material
 			float roughness = 0.9;
 			float metallic = 0.0;
-			glm::vec3 albedo = glm::vec3(mtl.color);
+			glm::vec3 albedo = glm::vec3(mtl->color);
 
 			PixCoord p;
 			p.x = x;
@@ -1321,7 +1779,7 @@ inline void lightingBounded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *
 
 			for (auto &light : env->pointLights) {
 				glm::vec3 light_color = point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
-				float shadow = light.shadowMapA[index];
+				float shadow = light.shadowMap[index];
 				result += (float(1.0) - shadow) * light_color;
 			}
 
@@ -1330,7 +1788,7 @@ inline void lightingBounded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *
 	}
 }
 
-inline void lightingThreaded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t numThreads) {
+inline void lightingThreaded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t numThreads) {
 	std::vector<std::thread> threads;
 
 	size_t h = HEIGHT / numThreads;
@@ -1350,7 +1808,7 @@ inline void lightingThreaded(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera 
 	}
 }
 
-inline void lighting(Mesh *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env) {
+inline void lighting(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env) {
 	lightingBounded(m, g, f, cam, env, 0, 0, g->width, g->height);
 }
 
@@ -1362,6 +1820,7 @@ int main(int argc, char *argv[]) {
 		0.0, 0.0, 0.0, 1.0
 	);
 	Mesh m = Mesh("model.obj", model);
+	BVH bvh = BVH(&m, 1);
 
 	float theta = 0.1;
 	Camera cam = Camera(theta);
@@ -1371,8 +1830,7 @@ int main(int argc, char *argv[]) {
 	light.falloff = 0.1;
 	light.color = glm::vec3(1.0);
 	light.radius = 0.2;
-	light.shadowMapA = std::vector<float>(WIDTH * HEIGHT, 0.0);
-	light.shadowMapB = std::vector<float>(WIDTH * HEIGHT, 0.0);
+	light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 
 	float ambient = 0.05;
 	std::vector<PointLight> pointLights = std::vector<PointLight>();
@@ -1381,8 +1839,6 @@ int main(int argc, char *argv[]) {
 
 	MyWindow w = MyWindow(WIDTH, HEIGHT, false);
 	GeometryBuffer g = GeometryBuffer(WIDTH, HEIGHT);
-
-	float alpha = 1.0;
 
 	while (!w.shouldClose) {
 		SDL_Event event;
@@ -1425,15 +1881,20 @@ int main(int argc, char *argv[]) {
 		w.clear();
 		g.clear();
 
-		traceMeshThreaded(&m, &cam, &g, 8);
-		shadowThreaded(&m, &g, &env, alpha, 8);
-		lightingThreaded(&m, &g, &w, &cam, &env, 8);
+		// drawMesh(&m, &cam, &w);
 
-		// traceMesh(&m, &cam, &g);
-		// shadow(&m, &g, &env);
-		// lighting(&m, &g, &w, &cam, &env);
+		// const auto before = std::chrono::system_clock::now();
 
-		alpha = 0.3;
+		traceThreaded(&bvh, &cam, &g, 8);
+		shadowThreaded(&bvh, &g, &env, 8);
+		lightingThreaded(&bvh, &g, &w, &cam, &env, 8);
+
+		// traceThreaded(&m, &cam, &g, 8);
+		// shadowThreaded(&m, &g, &env, 8);
+		// lightingThreaded(&m, &g, &w, &cam, &env, 8);
+
+		// const std::chrono::duration<double, std::milli> duration = std::chrono::system_clock::now() - before;
+		// std::cout << duration.count() << std::endl;
 
 		w.window.renderFrame();
 
