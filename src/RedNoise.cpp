@@ -21,6 +21,9 @@
 
 #define WIDTH 640
 #define HEIGHT 480
+// #define WIDTH 800
+// #define HEIGHT 800
+#define MAX_BOUNCES 10
 
 #define PI 3.14159265
 
@@ -29,6 +32,12 @@ static constexpr float MachineEpsilon = std::numeric_limits<float>::epsilon() * 
 // https://pbr-book.org/3ed-2018/Shapes/Managing_Rounding_Error#gamma
 inline constexpr float gamma(int n) {
 	return (n * MachineEpsilon) / (1.0 - n * MachineEpsilon);
+}
+
+template <typename T>
+inline T interpUV(T a, T b, T c, float u, float v) {
+	T d = a + (b - a) + (c - a);
+	return a*(float(1.0)-u)*(float(1.0)-v) + b*u*(float(1.0)-v) + c*(float(1.0)-u)*v + d*u*v;
 }
 
 template <typename T>
@@ -168,10 +177,20 @@ class Camera {
 
 struct Material {
 	/// @brief base color of the material rgba
-	glm::vec4 color;
+	glm::vec4 albedo;
+	int albedo_map;
 	/// @brief how much specular components of lighting contribute to the render
 	float roughness;
+	/// @brief how metallic the material is
+	float metallic;
+	/// @brief how much each channel of light will be refracted
+	float transmission;
+	/// @brief index of refraction
+	float ior;
+	/// @brief how much each channel is reflected
+	float reflectance;
 	/// @brief name of the material (to look up faces in draw)
+	int normal_map;
 	std::string name;
 };
 
@@ -215,6 +234,48 @@ struct Intersection {
 	float t;
 	float u;
 	float v;
+
+	glm::vec3 getNormal() {
+		if (face.hasNormals) {
+			return glm::normalize(interpUV(face.a.normal, face.b.normal, face.c.normal, u, v));
+		} else {
+			glm::vec3 e1 = face.b.pos - face.a.pos;
+			glm::vec3 e2 = face.c.pos - face.a.pos;
+			return glm::normalize(glm::cross(e1, e2));
+		}
+	}
+
+	glm::vec3 getTangent() {
+		if (!face.hasUvs) {
+			return face.b.pos - face.a.pos;
+		}
+		glm::vec3 e1 = face.b.pos - face.a.pos;
+		glm::vec3 e2 = face.c.pos - face.a.pos;
+
+		glm::vec2 duv1 = face.b.uv - face.a.uv;
+		glm::vec2 duv2 = face.c.uv - face.a.uv;
+
+		float f = 1.0 / (duv1.x * duv2.y - duv2.x * duv1.y);
+
+		glm::vec3 t;
+		t.x = f * (duv2.y * e1.x - duv1.y * e2.x);
+		t.y = f * (duv2.y * e1.y - duv1.y * e2.y);
+		t.z = f * (duv2.y * e1.z - duv1.y * e2.z);
+
+		return t;
+	}
+
+	glm::vec2 getUV() {
+		if (face.hasUvs) {
+			return interpUV(face.a.uv, face.b.uv, face.c.uv, u, v);
+		} else {
+			return glm::vec2(0.0);
+		}
+	}
+
+	int getMaterial() {
+		return face.mtl;
+	}
 };
 
 inline bool rayTriangleIntersection(Ray ray, Face face, Intersection *isect) {
@@ -265,6 +326,7 @@ class Intersectable {
 	public: 
 		virtual bool Intersect(const Ray &ray, Intersection *isect) = 0;
 		virtual const Material *material(int idx) = 0;
+		virtual const TextureMap *texture(int idx) = 0;
 };
 
 class Mesh: public Intersectable {
@@ -307,8 +369,13 @@ class Mesh: public Intersectable {
 			return &materials[idx];
 		}
 
+		const TextureMap *texture(int idx) {
+			return &textures[idx];
+		}
+
 		std::vector<Face> faces;
 		std::vector<Material> materials;
+		std::vector<TextureMap> textures;
 
 	Mesh(std::string path, glm::mat4 model) {
 		std::string buf;
@@ -327,6 +394,7 @@ class Mesh: public Intersectable {
 		std::ifstream MF(mtllib);
 
 		std::vector<Material> materials_buf;
+		std::vector<TextureMap> textures_buf;
 		Material m;
 		m.roughness = 1.0;
 		bool first_loop = true;
@@ -345,15 +413,45 @@ class Mesh: public Intersectable {
 					first_loop = false;
 				}
 				m.name = vals[1];
+				m.transmission = 0.0;
+				m.reflectance = 0.0;
+				m.ior = 1.45;
+				m.roughness = 0.5;
+				m.metallic = 0.0;
+				m.albedo_map = -1;
+				m.normal_map = -1;
 			} else if (vals[0] == "Kd") {
-				float r = std::stof(vals[1]);
-				float g = std::stof(vals[2]);
-				float b = std::stof(vals[3]);
-				float a = 1.0;
-				if (vals.size() >= 5) {
-					a = std::stof(vals[4]);
+				if (vals.size() < 4) {
+					m.albedo = glm::vec4(0.0);
+					m.albedo_map = textures_buf.size();
+					textures_buf.push_back(TextureMap(vals[1]));
+				} else {
+					float r = std::stof(vals[1]);
+					float g = std::stof(vals[2]);
+					float b = std::stof(vals[3]);
+					float a = 1.0;
+					if (vals.size() >= 5) {
+						a = std::stof(vals[4]);
+					}
+					m.albedo = glm::vec4(r, g, b, a);
 				}
-				m.color = glm::vec4(r, g, b, a);
+			} else if (vals[0] == "R") {
+				m.roughness = std::stof(vals[1]);
+			} else if (vals[0] == "T") {
+				float t = std::stof(vals[1]);
+				m.transmission = t;
+			} else if (vals[0] == "Rf") {
+				float r = std::stof(vals[1]);
+				m.reflectance = r;
+			} else if (vals[0] == "IOR") {
+				float ior = std::stof(vals[1]);
+				m.ior = ior;
+			} else if (vals[0] == "M") {
+				float metallic = std::stof(vals[1]);
+				m.metallic = metallic;
+			} else if (vals[0] == "Norm") {
+				m.normal_map = textures_buf.size();
+				textures_buf.push_back(TextureMap(vals[1]));
 			}
 		}
 
@@ -362,6 +460,7 @@ class Mesh: public Intersectable {
 		MF.close();
 
 		this->materials = materials_buf;
+		this->textures = textures_buf;
 
 		std::vector<glm::vec3> positions_buf;
 		std::vector<glm::vec3> normals_buf;	
@@ -373,6 +472,14 @@ class Mesh: public Intersectable {
 
 		for (int i = 0; i < materials.size(); i++) {
 			material_name_map[materials[i].name] = i;
+			std::cout << "name: " << materials[i].name << std::endl;
+			std::cout << "roughness: " << materials[i].roughness << std::endl;
+			std::cout << "transmission: " << materials[i].transmission << std::endl;
+			std::cout << "reflectance: " << materials[i].reflectance << std::endl;
+			std::cout << "metallic: " << materials[i].metallic << std::endl;
+			std::cout << "ior: " << materials[i].ior << std::endl;
+			std::cout << "albedo: " << materials[i].albedo.r << " " << materials[i].albedo.g << " " << materials[i].albedo.b << std::endl;
+			std::cout << std::endl;
 		}
 
 		while (getline(F, buf)) {
@@ -546,7 +653,7 @@ inline void drawPixLine(PixCoord from, PixCoord to, Material mtl, Framebuffer *f
 		draw.x = from.x + uint32_t(x_step * i);
 		draw.y = from.y + uint32_t(y_step * i);
 		draw.depth = from.depth + depth_step * i;
-		f->putPixelNoDepth(draw, mtl.color);
+		f->putPixelNoDepth(draw, mtl.albedo);
 	}
 }
 
@@ -721,7 +828,7 @@ inline void __internalflatPixTriangle(PixCoord a, PixCoord b, PixCoord c, Materi
 			p.x = x;
 			p.depth = depth;
 			
-			f->putPixel(p, mtl.color);
+			f->putPixel(p, mtl.albedo);
 
 			depth += ddepth;
 		}
@@ -1213,7 +1320,7 @@ struct BVHLinearNode {
 // https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies
 class BVH: public Intersectable {
 	public:
-		BVH(Mesh *m, int maxFacesInNode) : maxFacesInNode(maxFacesInNode), faces(m->faces), materials(m->materials) {
+		BVH(Mesh *m, int maxFacesInNode) : maxFacesInNode(maxFacesInNode), faces(m->faces), materials(m->materials), textures(m->textures){
 			if (faces.size() == 0) {
 				return;
 			}
@@ -1289,6 +1396,10 @@ class BVH: public Intersectable {
 
 		const Material *material(int idx) {
 			return &materials[idx];
+		}
+
+		const TextureMap *texture(int idx) {
+			return &textures[idx];
 		}
 
 	private:
@@ -1436,6 +1547,7 @@ class BVH: public Intersectable {
 		std::vector<Face> faces;
 		BVHLinearNode *nodes = nullptr;
 		std::vector<Material> materials;
+		std::vector<TextureMap> textures;
 };
 
 struct PointLight {
@@ -1456,12 +1568,6 @@ class Environment {
 			this->ambient = ambient;
 		}
 };
-
-template <typename T>
-inline T interpUV(T a, T b, T c, float u, float v) {
-	T d = a + (b - a) + (c - a);
-	return a*(float(1.0)-u)*(float(1.0)-v) + b*u*(float(1.0)-v) + c*(float(1.0)-u)*v + d*u*v;
-}
 
 inline glm::vec3 fresnelSchlick(float cos_theta, glm::vec3 f0) {
 	return f0 + (glm::vec3(1.0) - f0) * powf32(1.0 - cos_theta, 5.0);
@@ -1540,6 +1646,7 @@ class GeometryBuffer {
 		size_t height;
 		std::vector<glm::vec3> world_pos;
 		std::vector<glm::vec3> normal;
+		std::vector<glm::vec3> tangent;
 		std::vector<glm::vec2> uv;
 		std::vector<int> material;
 		std::vector<float> depth;
@@ -1548,17 +1655,19 @@ class GeometryBuffer {
 			this->width = width;
 			this->height = height;
 			this->world_pos = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
-			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->tangent = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
 			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
-			this->depth = std::vector<float>(this->width * this->height, 0.0);
+			this->depth = std::vector<float>(this->width * this->height, 100000000.0);
 			this->material = std::vector<int>(this->width * this->height, -1);
 		}
 
 		void clear() {
 			this->world_pos = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
 			this->normal = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
+			this->tangent = std::vector<glm::vec3>(this->width * this->height, glm::vec3(0.0));
 			this->uv = std::vector<glm::vec2>(width * height, glm::vec2(0.0));
-			this->depth = std::vector<float>(this->width * this->height, 0.0);
+			this->depth = std::vector<float>(this->width * this->height, 100000000.0);
 			this->material = std::vector<int>(this->width * this->height, -1);			
 		}
 
@@ -1601,29 +1710,17 @@ inline void traceBounded(Intersectable *m, Camera *cam, GeometryBuffer *g, size_
 			if (m->Intersect(ray, &isect)) {
 				glm::vec3 world_pos = ray.src + ray.dir * isect.t;
 
-				Face face = isect.face;
-				glm::vec3 e1 = face.b.pos - face.a.pos;
-				glm::vec3 e2 = face.c.pos - face.a.pos;
-				glm::vec3 normal;
-				if (face.hasNormals) {
-					normal = glm::normalize(interpUV(face.a.normal, face.b.normal, face.c.normal, isect.u, isect.v));
-				} else {
-					normal = glm::normalize(glm::cross(e1, e2));
-				}
-
-				glm::vec2 uv;
-				if (face.hasUvs) {
-					uv = interpUV(face.a.uv, face.b.uv, face.c.uv, isect.u, isect.v);
-				} else {
-					uv = glm::vec2(0.0);
-				}
+				glm::vec3 normal = isect.getNormal();
+				glm::vec2 uv = isect.getUV();
+				int mtl_idx = isect.getMaterial();
 
 				size_t index = g->index(x, y);
 				g->world_pos[index] = world_pos;
 				g->normal[index] = normal;
 				g->uv[index] = uv;
-				g->material[index] = face.mtl;
+				g->material[index] = mtl_idx;
 				g->depth[index] = isect.t;
+				g->tangent[index] = isect.getTangent();
 			}
 		}
 	}
@@ -1675,6 +1772,80 @@ glm::vec3 getConeSample(glm::vec3 direction, float coneAngle) {
 	return R * glm::vec3(x, y, z);
 }
 
+std::vector<float> denoise(std::vector<float> &src, GeometryBuffer *g) {
+	std::vector<float> result = std::vector<float>(WIDTH * HEIGHT, 0.0);
+
+	for (size_t y = 0; y < HEIGHT; y++) {
+		for (size_t x = 0; x < WIDTH; x++) {
+			size_t index = g->index(x, y);
+
+			// std::cout << "denoise" << std::endl;
+			float dzdx;
+			if (x > 0 && x < g->width - 1) {
+				dzdx = ((g->depth[index] - g->depth[g->index(x-1, y)]) + (g->depth[g->index(x+1, y)] - g->depth[index])) / 2.0;
+			} else if (x > 0) {
+				dzdx = g->depth[index] - g->depth[g->index(x-1, y)];
+			} else {
+				dzdx = g->depth[g->index(x+1, y)] - g->depth[index];
+			}
+
+			float dzdy;
+			if (y > 0 && y < g->height - 1) {
+				dzdy = ((g->depth[index] - g->depth[g->index(x, y-1)]) + (g->depth[g->index(x, y+1)] - g->depth[index])) / 2.0;
+			} else if (y > 0) {
+				dzdy = g->depth[index] - g->depth[g->index(x, y-1)];
+			} else {
+				dzdy = g->depth[g->index(x, y+1)] - g->depth[index];
+			}
+		
+			constexpr int ksize = 3;
+			// int vals_size = 0;
+			// int vals[ksize*ksize];
+
+			float newVal = 0.0;
+			float total = 0.0;
+
+			for (int i = -ksize; i <= ksize; i++) {
+				for (int j = -ksize; j <= ksize; j++) {
+					// std::cout << "BEFORE" << std::endl;
+					if (x + i < 0 || x + i >= g->width || y + j < 0 || y + j >= g->height) {
+						continue;
+					}
+					// std::cout << "HERE" << std::endl;
+					size_t tmp_idx = g->index(x+i, y+j);
+					float dz = std::abs(g->depth[tmp_idx] - g->depth[index]);
+					if (dz < float(i) * dzdx + float(j) * dzdy + 0.001) {
+						// insert val into vals
+						// find index to insert new val
+						// int k = 0;
+						// for (k = 0; k < vals_size; ++k) {
+						// 	if (vals[k] < src[tmp_idx]) {
+						// 		break;
+						// 	}
+						// }
+						// for (int l = vals_size; l > k; l++) {
+						// 	vals[l] = vals[l-1];
+						// }
+						// vals[k] = src[tmp_idx];
+						// vals_size++;
+						// std::cout << vals_size << std::endl;
+						newVal += src[tmp_idx];
+						total += 1.0;
+					}
+				}
+			}
+
+			// int mid = vals_size / 2;
+			// float newVal = vals[mid];
+
+			// std::cout << newVal / total << std::endl;
+			result[index] = newVal / total;
+			// std::cout << result[index] << std::endl;
+		}
+	}
+	return result;
+}
+
 // https://medium.com/@alexander.wester/ray-tracing-soft-shadows-in-real-time-a53b836d123b
 inline void shadowBounded(Intersectable *m, GeometryBuffer *g, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
 	for (size_t y = sy; y < sy+h; y++) {
@@ -1699,27 +1870,27 @@ inline void shadowBounded(Intersectable *m, GeometryBuffer *g, Environment *env,
 				float angle = std::acos(glm::dot(toLight, toLightEdge)) * 2.0;
 				
 				float density = 0.0;
-				int samples = 25;
+				int samples = 5;
 				for (int i = 0; i < samples; i++) {
 					Ray ray;
 					ray.dir = getConeSample(toLight, angle);
-					ray.src = world_pos + float(0.0001) * normal;
+					ray.src = world_pos + float(0.01) * normal;
 
 					Intersection isect;
 					if (m->Intersect(ray, &isect)) {
 						if (isect.t < glm::length(light.pos - world_pos)) {
-							density += 1.0;
+							density += 1.0 - m->material(isect.face.mtl)->transmission;
 						}
 					}
 				}
 
-				light.shadowMap[index] = density / float(samples);
+				light.shadowMap[index] = (density / float(samples));
 			}
 		}
 	}
 }
 
-inline void shadowThreaded(Intersectable *m, GeometryBuffer *g, Environment *env, size_t numThreads) {
+void shadowThreaded(Intersectable *m, GeometryBuffer *g, Environment *env, size_t numThreads) {
 	for (auto &light : env->pointLights) {
 		light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 	}
@@ -1741,19 +1912,213 @@ inline void shadowThreaded(Intersectable *m, GeometryBuffer *g, Environment *env
 	for (auto &t : threads) {
 		t.join();
 	}
+
+	for (auto &light : env->pointLights) {
+		auto tmp = denoise(light.shadowMap, g);
+		light.shadowMap.swap(tmp);
+	}
 }
 
-inline void shadow(Intersectable *m, GeometryBuffer *g, Environment *env) {
+void shadow(Intersectable *m, GeometryBuffer *g, Environment *env) {
 	for (auto &light : env->pointLights) {
 		light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 	}
 	shadowBounded(m, g, env, 0, 0, g->width, g->height);
+	for (auto &light : env->pointLights) {
+		auto tmp = denoise(light.shadowMap, g);
+		light.shadowMap.swap(tmp);
+	}
+}
+
+glm::vec3 tonemapPart(glm::vec3 x) {
+	// tonemapping https://www.slideshare.net/ozlael/hable-john-uncharted2-hdr-lighting
+	float t = 1.0 / 2.2;
+	// shoulder
+	float a = powf32(0.22, t);
+	// linear strength
+	float b = powf32(0.3, t);
+	// linear angle
+	float c = powf32(0.1, t);
+	// toe strength
+	float d = powf32(0.2, t);
+	// toe numerator
+	float e = powf32(0.01, t);
+	// toe denominator
+	float f = powf32(0.3, t);
+	return ((x * (a * x + c * b) + d * e) / (x * (a * a + b) + d * f)) - e / f;
+}
+
+glm::vec3 tonemap(glm::vec3 x) {
+	// tonemapping https://www.slideshare.net/ozlael/hable-john-uncharted2-hdr-lighting
+	// linear white
+	float w = 0.5;
+	return tonemapPart(x) / tonemapPart(glm::vec3(w));
+}
+
+glm::vec3 sample(const TextureMap *tex, glm::vec2 uv) {
+	int x = int(uv.x * tex->width) % tex->width;
+	int y = int(uv.y * tex->height) % tex->height;
+	auto val = tex->pixels[x + y * tex->width];
+	return val;
+}
+
+glm::vec3 lightPoint(
+	Intersectable *m, 
+	glm::vec3 world_pos, 
+	glm::vec3 normal,	
+	glm::vec3 tangent,
+	glm::vec2 uv,
+	float mtl_idx,
+	size_t index,
+	Camera *cam, 
+	Environment *env,
+	int depth
+) {
+	const Material *mtl = m->material(mtl_idx);
+	float roughness = mtl->roughness;
+	float metallic = mtl->metallic;
+	float transmission = mtl->transmission;
+	float reflectance = mtl->reflectance;
+	glm::vec3 albedo;
+	if (mtl->albedo_map != -1) {
+		const TextureMap *tex = m->texture(mtl->albedo_map);
+		albedo = sample(tex, uv);
+	} else {
+		albedo = glm::vec3(mtl->albedo);
+	};
+
+	if (mtl->normal_map != -1) {
+		const TextureMap *tex = m->texture(mtl->normal_map);
+		glm::vec3 bi_tangent = glm::cross(normal, tangent);
+		glm::mat3 tbn = glm::mat3(tangent, bi_tangent, normal);
+		glm::vec3 n = float(2.0) * sample(tex, uv) - glm::vec3(1.0);
+		n = tbn * n;
+		normal = glm::normalize(n);
+	}
+
+	glm::vec3 result = glm::vec3(0.0); 
+	result += albedo * env->ambient;
+
+	for (auto &light : env->pointLights) {
+		glm::vec3 light_color = point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
+		float shadow;
+		if (index != -1) {
+			shadow = light.shadowMap[index];
+		} else {
+			Ray shadow_ray;
+			shadow_ray.src = world_pos + float(0.0001) * normal;
+			shadow_ray.dir = glm::normalize(light.pos - world_pos);
+			// assume not in shadow
+			float density = 0.0;
+			Intersection shadow_isect;
+			if (m->Intersect(shadow_ray, &shadow_isect)) {
+				if (shadow_isect.t < glm::length(light.pos - world_pos)) {
+					density = 1.0 - m->material(shadow_isect.face.mtl)->transmission;
+				}
+			}
+			shadow = density;
+		}
+		result += (float(1.0) - shadow) * light_color;
+	}
+
+	glm::vec3 ref_result = glm::vec3(0.0);
+	if (reflectance != 0.0) {
+		if (depth <= 0) {
+			reflectance = 0.0;
+		} else {
+			glm::vec3 d = glm::normalize(world_pos - cam->getPos());
+			Ray ref;
+			ref.src = world_pos + float(0.001) * normal;
+			ref.dir = glm::normalize(d - float(2.0) * (glm::dot(d, normal)) * normal);
+
+			Intersection ref_isect;
+			if (m->Intersect(ref, &ref_isect)) {
+				glm::vec3 ref_pos = ref.src + ref.dir * ref_isect.t;
+
+				glm::vec3 ref_normal = ref_isect.getNormal();
+				glm::vec2 ref_uv = ref_isect.getUV();
+				glm::vec3 ref_tangent = ref_isect.getTangent();
+
+				int ref_mtl_idx = ref_isect.face.mtl;
+
+				ref_result = lightPoint(
+					m,
+					ref_pos,
+					ref_normal,
+					ref_tangent,
+					ref_uv,
+					ref_mtl_idx,
+					-1,
+					cam,
+					env,
+					depth - 1
+				);
+			}
+		}	
+	}
+
+	glm::vec3 trs_result = glm::vec3(0.0);
+	if (transmission != 0.0) {
+		if (depth <= 0) {
+			transmission = 0.0;
+		} else {
+			glm::vec3 d = glm::normalize(world_pos - cam->getPos());
+			glm::vec3 n = normal;
+
+			float n_dot_d = glm::dot(n, d);
+
+			float n_a;
+			float n_b;
+			if (n_dot_d < 0.0) {
+				n_a = 1.0;
+				n_b = mtl->ior;
+			} else {
+				n = -n;
+				n_a = mtl->ior;
+				n_b = 1.0;
+			}
+
+			Ray trs;
+			trs.src = world_pos - float(0.001) * n;
+			// https://stackoverflow.com/questions/20801561/glsl-refract-function-explanation-available
+			float tmp = (n_a/n_b) * (n_a/n_b) * (float(1.0) - n_dot_d * n_dot_d);
+			trs.dir = glm::normalize((n_a/n_b) * (d + d*n_dot_d) - n * sqrt(float(1.0) - tmp));
+
+			Intersection trs_isect;
+			if (m->Intersect(trs, &trs_isect)) {
+				glm::vec3 trs_pos = trs.src + trs.dir * trs_isect.t;
+
+				glm::vec3 trs_normal = trs_isect.getNormal();
+				glm::vec2 trs_uv = trs_isect.getUV();
+				glm::vec3 trs_tangent = trs_isect.getTangent();
+
+				int trs_mtl_idx = trs_isect.face.mtl;
+
+				trs_result = lightPoint(
+					m,
+					trs_pos,
+					trs_normal,
+					trs_tangent,
+					trs_uv,
+					trs_mtl_idx,
+					-1,
+					cam,
+					env,
+					depth - 1
+				);
+			}
+		}
+	}
+
+	result = transmission * trs_result + reflectance * ref_result + (float(1.0) - transmission - reflectance) * result;
+	return result;
 }
 
 inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
 	for (size_t y = sy; y < sy+h; y++) {
 		for (size_t x = sx; x < sx+w; x++) {
 			size_t index = g->index(x, y);
+
 			int mtl_idx = g->material[index];
 			if (mtl_idx == -1) {
 				continue;
@@ -1761,27 +2126,16 @@ inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f,
 
 			glm::vec3 world_pos = g->world_pos[index];
 			glm::vec3 normal = g->normal[index];
+			glm::vec3 tangent = g->tangent[index];
+			glm::vec2 uv = g->uv[index];
 			float depth = g->depth[index];
-			const Material *mtl = m->material(mtl_idx);
-
-			// TODO load from material
-			float roughness = 0.9;
-			float metallic = 0.0;
-			glm::vec3 albedo = glm::vec3(mtl->color);
 
 			PixCoord p;
 			p.x = x;
 			p.y = y;
 			p.depth = depth;
-			
-			glm::vec3 result = glm::vec3(0.0); 
-			result += albedo * env->ambient;
 
-			for (auto &light : env->pointLights) {
-				glm::vec3 light_color = point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
-				float shadow = light.shadowMap[index];
-				result += (float(1.0) - shadow) * light_color;
-			}
+			glm::vec3 result = lightPoint(m, world_pos, normal, tangent, uv, mtl_idx, index, cam, env, MAX_BOUNCES);
 
 			f->putPixel(p, glm::vec4(result.x, result.y, result.z, 1.0));
 		}
@@ -1808,6 +2162,180 @@ inline void lightingThreaded(Intersectable *m, GeometryBuffer *g, Framebuffer *f
 	}
 }
 
+struct Photon {
+	glm::vec3 point;
+	glm::vec3 dir;
+	glm::vec3 flux;
+};
+
+struct KDTreeNode {
+	Photon photon;
+	KDTreeNode *l;
+	KDTreeNode *r;
+};
+
+class KDTree {
+	public:
+		KDTree(std::vector<Photon> photons) {
+			this->root = buildRecursive(photons, 0);
+		}
+
+	private:
+		MemoryArena arena;
+		KDTreeNode *root;
+
+		KDTreeNode *buildRecursive(
+			std::vector<Photon> photons,
+			int depth
+		) {
+			KDTreeNode *node = arena.Alloc<KDTreeNode>();
+			if (photons.size() == 1) {
+				node->photon = photons[0];
+				node->l = nullptr;
+				node->r = nullptr;
+				return node;
+			}
+
+			int dim = depth % 3;
+
+			std::vector<Photon> sorted = photons;
+			std::sort(sorted.begin(), sorted.end(), [&](const Photon &a, const Photon &b) {
+				return a.point[dim] < b.point[dim];
+			});
+
+			int median_idx = sorted.size() / 2;
+
+			node->photon = sorted[median_idx];
+
+			std::vector<Photon> left = std::vector<Photon>(sorted.begin(), sorted.begin() + median_idx);
+			node->l = buildRecursive(left, depth + 1);
+
+			std::vector<Photon> right = std::vector<Photon>(sorted.begin() + median_idx + 1, sorted.end());
+			node->r = buildRecursive(right, depth + 1);
+
+			return node;
+		}
+};
+
+Ray getLightPhotonRay(const PointLight &l) {
+	float u = nextRand() * 2.0 * PI;
+	float v = nextRand() * PI;
+	float x = sin(u) * cos(v);
+	float y = cos(u) * cos(v);
+	float z = sin(v);
+	glm::vec3 src_offset = glm::vec3(x, y, z) * l.radius;
+
+	// partial derivatives to get a tangent space coordinate system
+	glm::vec3 ddu = glm::normalize(glm::vec3(cos(u)*cos(v), -sin(u)*cos(v), 0.0));
+	glm::vec3 ddv = glm::normalize(glm::vec3(-sin(u)*sin(v), -cos(u)*sin(v), cos(v)));
+	glm::vec3 n = glm::normalize(src_offset);
+
+	float s = nextRand() * 2.0 * PI;
+	float t = nextRand() * PI / 2.0;
+
+	glm::vec3 dir = sin(s)*cos(t) * ddu + cos(s)*cos(t)*ddv + sin(t)*n;
+
+	Ray ray;
+	ray.src = l.pos + src_offset;
+	// should be normalized already afaik but just to be safe
+	ray.dir = glm::normalize(dir);
+
+	return ray;
+}
+
+KDTree createPhotonMap(Intersectable *m, Environment *env, int n) {
+	std::vector<float> lightBounds = std::vector<float>();
+	float totalFlux = 0.0;
+	for (auto &l : env->pointLights) {
+		totalFlux += glm::length(l.color);
+	}
+
+	float tmp = 0.0;
+
+	for (auto &l : env->pointLights) {
+		lightBounds.push_back((glm::length(l.color) / totalFlux) + tmp);
+		tmp += glm::length(l.color) / totalFlux;
+	}
+
+	std::vector<Photon> photons;
+
+	for (int i = 0; i < n; i++) {
+		// pick a light at random
+		int light_idx = 0;
+		float light_rng = nextRand();
+		for (light_idx = 0; light_idx < env->pointLights.size(); light_idx++) {
+			if (lightBounds[light_idx] >= light_rng) {
+				break;
+			}
+		}
+
+		Ray ray = getLightPhotonRay(env->pointLights[light_idx]);
+		glm::vec3 flux = env->pointLights[light_idx].color;
+		Intersection isect;
+		Photon photon;
+
+		for (int j = 0; j < MAX_BOUNCES; j++) {
+			if (m->Intersect(ray, &isect)) {
+				photon.dir = ray.dir;
+				photon.point = ray.src + ray.dir * isect.t;
+				photon.flux = flux;
+				photons.push_back(photon);
+
+				float path_rng = nextRand();
+				const Material *mtl = m->material(isect.face.mtl);
+
+				glm::vec3 normal = isect.getNormal();
+
+				if (path_rng < mtl->reflectance) {
+					// reflect the ray
+					glm::vec3 d = ray.dir;
+					Ray ref;
+					ref.src = ray.src + ray.dir * isect.t + float(0.001) * normal;
+					ref.dir = d - float(2.0) * (glm::dot(d, normal)) * normal;
+					ray = ref;
+
+					flux *= mtl->reflectance;
+				} else if (path_rng < mtl->reflectance + mtl->transmission) {
+					// refract the ray
+					glm::vec3 d = ray.dir;
+					glm::vec3 n = normal;
+
+					float n_dot_d = glm::dot(n, d);
+
+					float n_a;
+					float n_b;
+					if (n_dot_d < 0.0) {
+						n_a = 1.0;
+						n_b = mtl->ior;
+					} else {
+						n = -n;
+						n_a = mtl->ior;
+						n_b = 1.0;
+					}
+
+					Ray trs;
+					trs.src = ray.src + ray.dir * isect.t - float(0.001) * n;
+					// https://stackoverflow.com/questions/20801561/glsl-refract-function-explanation-available
+					float tmp = (n_a/n_b) * (n_a/n_b) * (float(1.0) - n_dot_d * n_dot_d);
+					trs.dir = glm::normalize((n_a/n_b) * (d + d*n_dot_d) - n * sqrt(float(1.0) - tmp));
+					ray = trs;
+
+					flux *= mtl->transmission;
+				} else {
+					// bounce the ray or absorb?
+					break;
+				}
+			} else {
+				// no intersection
+				break;
+			}
+		}
+	}
+
+	KDTree t = KDTree(photons);
+	return t;
+}
+
 inline void lighting(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env) {
 	lightingBounded(m, g, f, cam, env, 0, 0, g->width, g->height);
 }
@@ -1819,17 +2347,17 @@ int main(int argc, char *argv[]) {
 		0.0, 0.0, 0.5, 0.0,
 		0.0, 0.0, 0.0, 1.0
 	);
-	Mesh m = Mesh("model.obj", model);
-	BVH bvh = BVH(&m, 1);
+	Mesh m = Mesh("scene.obj", model);
+	BVH bvh = BVH(&m, 5);
 
 	float theta = 0.1;
 	Camera cam = Camera(theta);
 
 	PointLight light;
 	light.pos = glm::vec3(0.0, 1.0, 0.0);
-	light.falloff = 0.1;
-	light.color = glm::vec3(1.0);
-	light.radius = 0.2;
+	light.falloff = 0.5;
+	light.color = glm::vec3(2.0);
+	light.radius = 0.05;
 	light.shadowMap = std::vector<float>(WIDTH * HEIGHT, 0.0);
 
 	float ambient = 0.05;
@@ -1883,21 +2411,25 @@ int main(int argc, char *argv[]) {
 
 		// drawMesh(&m, &cam, &w);
 
-		// const auto before = std::chrono::system_clock::now();
+		const auto before = std::chrono::system_clock::now();
 
+		std::cout << "trace" << std::endl;
 		traceThreaded(&bvh, &cam, &g, 8);
+		std::cout << "shadow" << std::endl;
 		shadowThreaded(&bvh, &g, &env, 8);
+		std::cout << "lighting" << std::endl;
 		lightingThreaded(&bvh, &g, &w, &cam, &env, 8);
 
 		// traceThreaded(&m, &cam, &g, 8);
 		// shadowThreaded(&m, &g, &env, 8);
 		// lightingThreaded(&m, &g, &w, &cam, &env, 8);
 
-		// const std::chrono::duration<double, std::milli> duration = std::chrono::system_clock::now() - before;
-		// std::cout << duration.count() << std::endl;
+		const std::chrono::duration<double, std::milli> duration = std::chrono::system_clock::now() - before;
+		std::cout << duration.count() << std::endl;
 
 		w.window.renderFrame();
 
 		std::cout << "render" << std::endl;
+		std::cout << std::endl;
 	}
 }

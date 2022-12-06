@@ -4,12 +4,14 @@
 #include <fstream>
 #include <stdexcept>
 #include "Utils.h"
+#include <glm/glm.hpp>
+#include "glm/gtc/matrix_transform.hpp"
 
 class TextureMap {
 public:
 	size_t width;
 	size_t height;
-	std::vector<uint32_t> pixels;
+	std::vector<glm::vec3> pixels;
 
 	TextureMap();
 	TextureMap(const std::string &filename);

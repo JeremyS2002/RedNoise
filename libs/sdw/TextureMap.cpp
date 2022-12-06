@@ -1,4 +1,6 @@
 #include "TextureMap.h"
+#include <glm/glm.hpp>
+#include "glm/gtc/matrix_transform.hpp"
 
 TextureMap::TextureMap() = default;
 TextureMap::TextureMap(const std::string &filename) {
@@ -19,12 +21,13 @@ TextureMap::TextureMap(const std::string &filename) {
 	// Read the max value (which we assume is 255)
 	std::getline(inputStream, nextLine);
 
-	pixels.resize(width * height);
+	// pixels.resize(width * height);
 	for (size_t i = 0; i < width * height; i++) {
-		int red = inputStream.get();
-		int green = inputStream.get();
-		int blue = inputStream.get();
-		pixels[i] = ((255 << 24) + (red << 16) + (green << 8) + (blue));
+		int r = inputStream.get();
+		int g = inputStream.get();
+		int b = inputStream.get();
+		// pixels[i] = ((255 << 24) + (red << 16) + (green << 8) + (blue));
+		pixels.push_back(glm::vec3(float(r) / 255.0, float(g) / 255.0, float(b) / 255.0));
 	}
 	inputStream.close();
 }

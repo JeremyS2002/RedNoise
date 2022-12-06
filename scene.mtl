@@ -1,0 +1,58 @@
+# Blender MTL File: 'None'
+# Material Count: 11
+
+newmtl Blue
+Kd 0.000000 0.000000 1.000000
+0.1
+
+newmtl Cyan
+Kd 0.000000 1.0 1.0
+R 0.9
+
+newmtl Logo
+Kd 1.0 0.1 0.025
+R 0.9
+
+newmtl Chrome
+Kd 1.0 1.0 1.0
+R 0.0
+Rf 1.0
+
+newmtl Glass
+Kd 0.95 0.95 0.95
+T 0.95
+IOR 1.45
+
+newmtl Green
+Kd 0.000000 1.000000 0.000000
+R 1.0
+
+newmtl Floor
+Kd texture.ppm
+Norm texture_norm.ppm
+R 0.1
+
+newmtl Grey
+Kd 0.700000 0.700000 0.700000
+R 1.0
+
+newmtl Magenta
+Kd 1.000000 0.000000 1.000000
+R 0.9
+
+newmtl Monkey
+Kd leather.ppm
+Norm leather_norm.ppm
+R 0.7
+
+newmtl Red
+Kd 1.000000 0.000000 0.000000
+R 0.96
+
+newmtl White
+Kd 1.000000 1.000000 1.000000
+R 1.0
+
+newmtl Yellow
+Kd 1.000000 1.000000 0.000000
+R 0.1
