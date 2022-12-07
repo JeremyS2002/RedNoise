@@ -18,6 +18,8 @@
 #include <utility>
 #include <limits.h>
 #include <chrono>
+#include <iostream>
+#include <iomanip>
 
 #define WIDTH 640
 #define HEIGHT 480
@@ -96,14 +98,42 @@ class Framebuffer {
 
 class Camera {
 	public:
+		Camera() {
+			float theta = 0.0;
+			this->pos = float(5.0) * glm::vec3(cos(-theta + (PI/2)), 0.0, sin(-theta + (PI/2)));
+			this->f = 2.0;
+			this->pitch = 0.0;
+			this->yaw = theta;
+		}
+
 		Camera(float theta) {
 			this->pos = float(5.0) * glm::vec3(cos(-theta + (PI/2)), 0.0, sin(-theta + (PI/2)));
 			this->f = 2.0;
 			this->pitch = 0.0;
 			this->yaw = theta;
-			this->lastPos = this->pos;
-			this->lastPitch = this->pitch;
-			this->lastYaw = this->yaw;
+		}
+
+		Camera(glm::vec3 p, glm::vec3 dir) {
+			this->pos = p;
+			this->f = 2.0;
+			dir = glm::normalize(dir);
+			this->pitch = asinf32(dir.y);
+			this->yaw = acosf32(dir.z / cosf32(pitch));
+		}
+
+		Camera(glm::vec3 p) {
+			this->pos = p;
+			this->f = 2.0;
+			glm::vec3 d = glm::normalize(p);
+			this->pitch = asinf32(d.y);
+			this->yaw = acosf32(d.z / cosf32(pitch));
+		}
+
+		Camera(glm::vec3 position, float p, float y) {
+			this->pos = position;
+			this->f = 2.0;
+			this->pitch = p;
+			this->yaw = y;
 		}
 
 		glm::vec3 getPos() {
@@ -118,45 +148,27 @@ class Camera {
 			return this->yaw;
 		}
 
-		glm::vec3 getLastPos() {
-			return this->lastPos;
-		}
-
-		float getLastPitch() {
-			return this->lastPitch;
-		}
-
-		float getLastYaw() {
-			return this->lastYaw;
-		}
-
 		void setPos(glm::vec3 newPos) {
-			this->lastPos = this->pos;
 			this->pos = newPos;
 		}
 
 		void setPitch(float newPitch) {
-			this->lastPitch = this->pitch;
 			this->pitch = newPitch;
 		}
 
 		void setYaw(float newYaw) {
-			this->lastYaw = this->yaw;
 			this->yaw = newYaw;
 		}
 
 		void addPos(glm::vec3 deltaPos) {
-			this->lastPos = this->pos;
 			this->pos += deltaPos;
 		}
 
 		void addPitch(float deltaPitch) {
-			this->lastPitch = this->pitch;
 			this->pitch += deltaPitch;
 		}
 
 		void addYaw(float deltaYaw) {
-			this->lastYaw = this->yaw;
 			this->yaw += deltaYaw;
 		}
 
@@ -169,10 +181,6 @@ class Camera {
 		glm::vec3 pos;
 		float pitch;
 		float yaw;
-
-		glm::vec3 lastPos;
-		float lastPitch;
-		float lastYaw;
 };
 
 struct Material {
@@ -422,7 +430,7 @@ class Mesh: public Intersectable {
 				m.normal_map = -1;
 			} else if (vals[0] == "Kd") {
 				if (vals.size() < 4) {
-					m.albedo = glm::vec4(0.0);
+					m.albedo = glm::vec4(0.5);
 					m.albedo_map = textures_buf.size();
 					textures_buf.push_back(TextureMap(vals[1]));
 				} else {
@@ -734,7 +742,7 @@ inline void drawDeviceTriangleWireFrame(DeviceCoord a, DeviceCoord b, DeviceCoor
 /// @param f the framebuffer to draw to
 /// @param c camera to transofrm points by
 /// @param model model matrix to transform points by
-inline void drawWorldTriangleWireframe(WorldCoord a, WorldCoord b, WorldCoord c, Material mtl, Framebuffer *f, Camera *cam, glm::mat4 model) {
+inline void drawWorldTriangleWireframe(WorldCoord a, WorldCoord b, WorldCoord c, Material mtl, Framebuffer *f, Camera *cam) {
 	auto device_a = world2device(a, cam);
 	auto device_b = world2device(b, cam);
 	auto device_c = world2device(c, cam);
@@ -988,6 +996,12 @@ void drawMesh(Mesh *m, Camera *cam, Framebuffer *f) {
 	// }
 	for (auto face = m->faces.begin(); face != m->faces.end(); face++) {
 		drawWorldTriangle(face->a, face->b, face->c, m->materials[face->mtl], f, cam);
+	}
+}
+
+void drawMeshWireframe(Mesh *m, Camera *cam, Framebuffer *f) {
+	for (auto &face : m->faces) {
+		drawWorldTriangleWireframe(face.a, face.b, face.c, m->materials[face.mtl], f, cam);
 	}
 }
 
@@ -1601,7 +1615,7 @@ inline float geometry_smith(glm::vec3 n, glm::vec3 v, glm::vec3 l, float roughne
 	return ggx1 * ggx2;
 }
 
-inline glm::vec3 point_light_calc(
+inline glm::vec3 physically_based_point_light_calc(
 	PointLight light,
 	glm::vec3 view_pos,
 	glm::vec3 world_pos,
@@ -1613,6 +1627,10 @@ inline glm::vec3 point_light_calc(
 	glm::vec3 to_light = light.pos - world_pos;
 	glm::vec3 to_light_unit = glm::normalize(to_light);
 	glm::vec3 view = glm::normalize(view_pos - world_pos);
+
+	if (glm::dot(normal, view) < 0.0) {
+		return glm::vec3(0.0);
+	}
 
 	glm::vec3 halfway = glm::normalize(view + to_light_unit);
 
@@ -1638,6 +1656,69 @@ inline glm::vec3 point_light_calc(
 	float n_dot_l = std::fmax(glm::dot(normal, to_light_unit), 0.0);
 
 	return (kd * albedo / float(PI) + specular) * radiance * n_dot_l;
+}
+
+// https://docs.gl/sl4/reflect
+inline glm::vec3 reflect(glm::vec3 I, glm::vec3 N) {
+	return I - float(2.0) * glm::dot(N, I) * N;
+}
+
+inline glm::vec3 phong_point_light_calc(
+	PointLight light,
+	glm::vec3 view_pos,
+	glm::vec3 world_pos,
+	glm::vec3 normal,
+	glm::vec3 albedo,
+	float roughness,
+	float metallic
+) {
+	glm::vec3 light_dir = glm::normalize(light.pos - world_pos);
+	glm::vec3 view_dir = glm::normalize(view_pos - world_pos);
+
+	if (glm::dot(normal, view_dir) < 0.0) {
+		return glm::vec3(0.0);
+	}
+
+	float diff = std::fmax(glm::dot(normal, light_dir), 0.0);
+
+	glm::vec3 reflect_dir = glm::normalize(reflect(-light_dir, normal));
+	float spec = powf32(std::fmax(glm::dot(view_dir, reflect_dir), 0.0), 1.0 - roughness);
+
+	glm::vec3 to_light = light.pos - world_pos;
+	float distance2 = glm::dot(to_light, to_light);
+	float attenuation = 1.0 / (0.0001 + light.falloff * distance2);
+
+	glm::vec3 diffuse = attenuation * float(0.25) * light.color * diff * albedo;
+	glm::vec3 specular = attenuation * float(0.125) * light.color * spec * albedo;
+
+	return diffuse + specular;
+}
+
+inline glm::vec3 basic_point_light_calc(
+	PointLight light,
+	glm::vec3 view_pos,
+	glm::vec3 world_pos,
+	glm::vec3 normal,
+	glm::vec3 albedo,
+	float roughness,
+	float metallic
+) {
+	glm::vec3 light_dir = glm::normalize(light.pos - world_pos);
+	glm::vec3 view_dir = glm::normalize(view_pos - world_pos);
+
+	if (glm::dot(normal, view_dir) < 0.0) {
+		return glm::vec3(0.0);
+	}
+
+	float diff = std::fmax(glm::dot(normal, light_dir), 0.0);
+
+	glm::vec3 to_light = light.pos - world_pos;
+	float distance2 = glm::dot(to_light, to_light);
+	float attenuation = 1.0 / (0.0001 + light.falloff * distance2);
+
+	glm::vec3 diffuse = attenuation * float(0.25) * light.color * diff * albedo;
+
+	return diffuse;
 }
 
 class GeometryBuffer {
@@ -1870,7 +1951,7 @@ inline void shadowBounded(Intersectable *m, GeometryBuffer *g, Environment *env,
 				float angle = std::acos(glm::dot(toLight, toLightEdge)) * 2.0;
 				
 				float density = 0.0;
-				int samples = 5;
+				int samples = 20;
 				for (int i = 0; i < samples; i++) {
 					Ray ray;
 					ray.dir = getConeSample(toLight, angle);
@@ -1962,6 +2043,12 @@ glm::vec3 sample(const TextureMap *tex, glm::vec2 uv) {
 	return val;
 }
 
+enum LightingMethod {
+	GGX,
+	PHONG,
+	BASIC,
+};
+
 glm::vec3 lightPoint(
 	Intersectable *m, 
 	glm::vec3 world_pos, 
@@ -1972,7 +2059,8 @@ glm::vec3 lightPoint(
 	size_t index,
 	Camera *cam, 
 	Environment *env,
-	int depth
+	int depth,
+	LightingMethod lighting
 ) {
 	const Material *mtl = m->material(mtl_idx);
 	float roughness = mtl->roughness;
@@ -2000,7 +2088,18 @@ glm::vec3 lightPoint(
 	result += albedo * env->ambient;
 
 	for (auto &light : env->pointLights) {
-		glm::vec3 light_color = point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
+		glm::vec3 light_color;
+		switch (lighting) {
+			case GGX:
+				light_color = physically_based_point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
+				break;
+			case PHONG:
+				light_color = phong_point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);	
+				break;
+			case BASIC:
+				light_color = basic_point_light_calc(light, cam->getPos(), world_pos, normal, albedo, roughness, metallic);
+				break;
+		}
 		float shadow;
 		if (index != -1) {
 			shadow = light.shadowMap[index];
@@ -2051,7 +2150,8 @@ glm::vec3 lightPoint(
 					-1,
 					cam,
 					env,
-					depth - 1
+					depth - 1,
+					lighting
 				);
 			}
 		}	
@@ -2104,7 +2204,8 @@ glm::vec3 lightPoint(
 					-1,
 					cam,
 					env,
-					depth - 1
+					depth - 1,
+					lighting
 				);
 			}
 		}
@@ -2114,7 +2215,7 @@ glm::vec3 lightPoint(
 	return result;
 }
 
-inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h) {
+inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t sx, size_t sy, size_t w, size_t h, LightingMethod lighting) {
 	for (size_t y = sy; y < sy+h; y++) {
 		for (size_t x = sx; x < sx+w; x++) {
 			size_t index = g->index(x, y);
@@ -2135,14 +2236,14 @@ inline void lightingBounded(Intersectable *m, GeometryBuffer *g, Framebuffer *f,
 			p.y = y;
 			p.depth = depth;
 
-			glm::vec3 result = lightPoint(m, world_pos, normal, tangent, uv, mtl_idx, index, cam, env, MAX_BOUNCES);
+			glm::vec3 result = lightPoint(m, world_pos, normal, tangent, uv, mtl_idx, index, cam, env, MAX_BOUNCES, lighting);
 
 			f->putPixel(p, glm::vec4(result.x, result.y, result.z, 1.0));
 		}
 	}
 }
 
-inline void lightingThreaded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t numThreads) {
+inline void lightingThreaded(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, size_t numThreads, LightingMethod lighting) {
 	std::vector<std::thread> threads;
 
 	size_t h = HEIGHT / numThreads;
@@ -2152,7 +2253,7 @@ inline void lightingThreaded(Intersectable *m, GeometryBuffer *g, Framebuffer *f
 	size_t x = 0;
 
 	for (int i = 0; i < numThreads; i++) {
-		std::thread t(lightingBounded, m, g, f, cam, env, x, y, w, h);
+		std::thread t(lightingBounded, m, g, f, cam, env, x, y, w, h, lighting);
 		threads.push_back(std::move(t));
 		y += h;
 	}
@@ -2336,9 +2437,28 @@ KDTree createPhotonMap(Intersectable *m, Environment *env, int n) {
 	return t;
 }
 
-inline void lighting(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env) {
-	lightingBounded(m, g, f, cam, env, 0, 0, g->width, g->height);
+inline void lighting(Intersectable *m, GeometryBuffer *g, Framebuffer *f, Camera *cam, Environment *env, LightingMethod lighting) {
+	lightingBounded(m, g, f, cam, env, 0, 0, g->width, g->height, lighting);
 }
+
+struct CubicBezierCurve {
+	glm::vec3 p0;
+	glm::vec3 p1;
+	glm::vec3 p2;
+	glm::vec3 p3;
+
+	glm::vec3 interp(float t) {
+		float omt = float(1.0) - t;
+
+		return omt*omt*omt*p0 + float(3.0)*omt*omt*t*p1 + float(3.0)*omt*t*t*p2 + t*t*t*p3;
+	}
+
+	glm::vec3 derivative(float t) {
+		float omt = 1.0 - t;
+		glm::vec3 d = float(3.0)*omt*omt*(p1 - p0) + float(6.0)*omt*t*(p2-p1) + float(3.0)*t*t*(p3-p2);
+		return glm::normalize(d);
+	}
+};
 
 int main(int argc, char *argv[]) {
 	glm::mat4 model = glm::mat4(
@@ -2350,11 +2470,11 @@ int main(int argc, char *argv[]) {
 	Mesh m = Mesh("scene.obj", model);
 	BVH bvh = BVH(&m, 5);
 
-	float theta = 0.1;
-	Camera cam = Camera(theta);
+	// float theta = 0.1;
+	Camera cam = Camera();
 
 	PointLight light;
-	light.pos = glm::vec3(0.0, 1.0, 0.0);
+	light.pos = glm::vec3(0.0, 1.0, 1.0);
 	light.falloff = 0.5;
 	light.color = glm::vec3(2.0);
 	light.radius = 0.05;
@@ -2367,6 +2487,21 @@ int main(int argc, char *argv[]) {
 
 	MyWindow w = MyWindow(WIDTH, HEIGHT, false);
 	GeometryBuffer g = GeometryBuffer(WIDTH, HEIGHT);
+
+	float fps = 24.0;
+	float t = 0.0;
+	float dt = 1.0 / fps;
+
+	int frame_num = 796;
+
+	CubicBezierCurve c;
+	float theta = 25.39;
+	c.p0 = float(5.0) * glm::vec3(cos(-theta + (PI/2)), 0.0, sin(-theta + (PI/2)));
+// c.p0 = glm::vec3(1.011145830154419, 0.0, 4.960288047790527);
+c.p1 = glm::vec3(0.011188507080078125, 0.0, 4.951050758361816);
+c.p2 = glm::vec3(-1.507867455482483, -0.7425732016563416, 2.3361434936523438);
+c.p3 = glm::vec3(-1.1663074493408203, 0.08422451466321945, 1.4649369716644287);
+
 
 	while (!w.shouldClose) {
 		SDL_Event event;
@@ -2409,20 +2544,70 @@ int main(int argc, char *argv[]) {
 		w.clear();
 		g.clear();
 
-		// drawMesh(&m, &cam, &w);
+		// float theta = (t / 5.0) * 2.0 * PI;
+		// float theta = 25.39;
+		// // theta = 0.00001;
+		// cam = Camera(theta);
+		// glm::vec3 p = c.interp(0.0);
+		// glm::vec3 d = c.derivative(0.0);
+		// cam = Camera(p, d);
+
+		// glm::vec3 p = glm::vec3(1.011145830154419, 0.0, 4.960288047790527);
+		
+
+		// glm::vec3 p = c.interp(t / 10.0);
+		// std::cout << p.x << " " << p.y << " " << p.z << std::endl;
+		// glm::vec3 d = c.derivative(t / 10.0);
+		// std::cout << d.x << " " << d.y << " " << d.z << std::endl;
+		// float pitch = asinf32(d.y);
+		// float yaw = acosf32(d.z / cosf32(pitch));
+
+		// glm::vec3 p = c.p3;//glm::vec3(-0.8470036387443542, 0.716678261756897, 0.4659724831581116);
+		if(t > 10.0) {
+			break;
+			// t = 0.0;
+		}
+
+		glm::vec3 p = c.interp(t / 10.0);
+		glm::vec3 d = glm::normalize(p);
+		float pitch = -asinf32(d.y);
+		float yaw = acosf32(d.z / cosf32(pitch));
+		if (d.x < 0.0) {
+			yaw = -yaw;
+		}
+
+		std::cout << p.x << " " << p.y << " " << p.z << std::endl;
+		std::cout << pitch << std::endl;
+		std::cout << yaw << std::endl;
+
+		cam = Camera(p, pitch, yaw);
+
+		t += dt;
 
 		const auto before = std::chrono::system_clock::now();
 
-		std::cout << "trace" << std::endl;
-		traceThreaded(&bvh, &cam, &g, 8);
-		std::cout << "shadow" << std::endl;
-		shadowThreaded(&bvh, &g, &env, 8);
-		std::cout << "lighting" << std::endl;
-		lightingThreaded(&bvh, &g, &w, &cam, &env, 8);
+		
 
-		// traceThreaded(&m, &cam, &g, 8);
-		// shadowThreaded(&m, &g, &env, 8);
-		// lightingThreaded(&m, &g, &w, &cam, &env, 8);
+		// if (t > 15.0) {
+			std::cout << "trace" << std::endl;
+			traceThreaded(&bvh, &cam, &g, 8);
+			std::cout << "shadow" << std::endl;
+			shadowThreaded(&bvh, &g, &env, 8);
+			std::cout << "lighting" << std::endl;
+			lightingThreaded(&bvh, &g, &w, &cam, &env, 8, GGX);
+			// drawMeshWireframe(&m, &cam, &w);
+		// } else if (t > 10.0) {
+			// std::cout << "trace" << std::endl;
+			// traceThreaded(&bvh, &cam, &g, 8);
+			// std::cout << "shadow" << std::endl;
+			// shadowThreaded(&bvh, &g, &env, 8);
+			// std::cout << "lighting" << std::endl;
+			// lightingThreaded(&bvh, &g, &w, &cam, &env, 8, BASIC);
+		// } else if (t > 5.0) {
+		// 	drawMesh(&m, &cam, &w);
+		// } else {
+		// 	drawMeshWireframe(&m, &cam, &w);
+		// }
 
 		const std::chrono::duration<double, std::milli> duration = std::chrono::system_clock::now() - before;
 		std::cout << duration.count() << std::endl;
@@ -2431,5 +2616,10 @@ int main(int argc, char *argv[]) {
 
 		std::cout << "render" << std::endl;
 		std::cout << std::endl;
+
+		std::ostringstream ss;
+		ss << "output/" << std::setw(5) << std::setfill('0') << frame_num  << ".ppm" << std::endl;
+		w.window.savePPM(ss.str());
+		frame_num++;
 	}
 }
