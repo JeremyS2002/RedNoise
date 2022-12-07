@@ -183,6 +183,10 @@ class Camera {
 		float yaw;
 };
 
+Camera lookAt(glm::vec3 pos, glm::vec3 at) {
+	return Camera(pos, glm::normalize(at - pos));
+}
+
 struct Material {
 	/// @brief base color of the material rgba
 	glm::vec4 albedo;
