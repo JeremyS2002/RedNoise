@@ -2492,7 +2492,7 @@ int main(int argc, char *argv[]) {
 	float t = 0.0;
 	float dt = 1.0 / fps;
 
-	int frame_num = 796;
+	int frame_num = 1036;
 
 	CubicBezierCurve c;
 	float theta = 25.39;
@@ -2568,7 +2568,7 @@ c.p3 = glm::vec3(-1.1663074493408203, 0.08422451466321945, 1.4649369716644287);
 			// t = 0.0;
 		}
 
-		glm::vec3 p = c.interp(t / 10.0);
+		glm::vec3 p = c.p3;//c.interp(t / 10.0);
 		glm::vec3 d = glm::normalize(p);
 		float pitch = -asinf32(d.y);
 		float yaw = acosf32(d.z / cosf32(pitch));
@@ -2618,7 +2618,7 @@ c.p3 = glm::vec3(-1.1663074493408203, 0.08422451466321945, 1.4649369716644287);
 		std::cout << std::endl;
 
 		std::ostringstream ss;
-		ss << "output/" << std::setw(5) << std::setfill('0') << frame_num  << ".ppm" << std::endl;
+		ss << "output/" << std::setw(5) << std::setfill('0') << frame_num  << ".ppm";
 		w.window.savePPM(ss.str());
 		frame_num++;
 	}
